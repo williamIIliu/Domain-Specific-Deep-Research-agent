@@ -20,9 +20,6 @@ __pycache__/
 .DS_Store
 
 # 数据集和大文件
-datasets/
-
-# 预训练模型
 pretrain_models/
 output/
 pkgs/
