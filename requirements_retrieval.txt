@@ -1,0 +1,14 @@
+dotenv
+faiss-cpu
+rank_bm25
+langchain
+jieba
+json-repair
+modelscope
+accelerate
+modelscope
+vllm
+langchain-community
+ms-swift
+deepspeed
+transformers>=4.51.0
