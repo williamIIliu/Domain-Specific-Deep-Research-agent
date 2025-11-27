@@ -1,6 +1,7 @@
 dotenv
 faiss-cpu
 rank_bm25
+pyserini
 langchain
 jieba
 json-repair
