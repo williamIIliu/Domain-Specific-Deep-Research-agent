@@ -5,7 +5,7 @@
 # 1. 直接运行：使用所有默认路径和参数
 # 2. 自定义参数：在脚本后追加参数，例如：./start_retrieval_server.sh --port 8080 --alpha 0.7
 
- python search_engine/faiss/retrieval_server_test.py \
+ python search_engine/faiss/retrieval.py \
    --port 8080 \
    --alpha 0.6 \
    --top_k 5 \
