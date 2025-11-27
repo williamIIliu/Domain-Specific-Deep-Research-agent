@@ -2,8 +2,6 @@
 
 ## 环境
 
-Embedding
-
 ```
 # 安装uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -16,6 +14,14 @@ export PYTHONPATH="$PWD:$PYTHONPATH"
 ```
 
 微调数据集
+
+### 模型权重
+
+```
+modelscope download --model Qwen/Qwen3-Embedding-0.6B  --local_dir ./pretrain_models/embedding/Qwen3-Embedding-0.6B
+```
+
+
 
 ## 2 Q&A双阶段蒸馏
 
@@ -143,12 +149,168 @@ python src/embedding/distill/distill_complete.py
 
 
 
-#### 
-
-
-
 ## 微调数据集
+
+使用ms-swift对Embedding模型进行训练
+
+```bash
+INFONCE_MASK_FAKE_NEGATIVE=true \ # 过滤掉假负样本，也就是负样本的相似度超过正样本的
+CUDA_VISIBLE_DEVICES=0,1 \
+NPROC_PER_NODE=2 \
+swift sft \
+    --model ../../pretrain_weights/embedding/qwen3-0_6b \
+    --task_type embedding \
+    --model_type qwen3_emb \
+    --torch_dtype bfloat16 \
+    --train_type lora \
+    --lora_rank 8 \
+    --lora_alpha 32 \
+    --target_modules q_proj v_proj o_proj \
+    --learning_rate 6e-6 \
+    --dataset ../../datasets/OmniEval-Corpus/infonce_neg.jsonl \
+    --use_hf true \
+    --dataloader_num_workers 2 \
+    --split_dataset_ratio 0.05 \
+    --num_train_epochs 5 \
+    --eval_strategy steps \
+    --eval_steps 100 \
+    --save_steps 500 \
+    --output_dir  ../../pretrain_weights/embedding/qwen3-0_6b_finetune \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 8 \
+    --gradient_accumulation_steps 4 \
+    --loss_type infonce \
+    --dataloader_drop_last true \
+    --deepspeed zero2 \
+    --report_to swanlab \
+    --swanlab_project embedding_finetune
+```
 
 
 
 ## 数据库
+
+其实这里使用Milvus或者是Elastic Search能够加速非常多（3-5倍，并且更好的检索效果），但是考虑到大多数用户没有sudo权限，所以这里使用Faiss作为向量数据库。同时Milvus数据库搭建也有相应代码，感兴趣的同学可以尝试。
+
+### 稠密检索
+
+#### Embedding生成
+
+通过bf16、torchrun分布式计算等方式进行加速生成，封装shell脚本如下
+
+```
+search_engine/faiss/get_embedding.sh
+```
+
+其中Qwen3-Embedding模型使用的是last-token的潜在表示d_model作为一个文本的稠密向量，具体代码：
+
+```
+# ---------------------- 3. Embedding计算优化 ----------------------
+def last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
+    device = last_hidden_states.device
+    left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
+    if left_padding:
+        return last_hidden_states[:, -1].to(device)
+    else:
+        sequence_lengths = attention_mask.sum(dim=1) - 1
+        batch_size = last_hidden_states.shape[0]
+        return last_hidden_states[
+            torch.arange(batch_size, device=device),
+            sequence_lengths
+        ].to(device)
+
+
+def compute_embeddings(model, batch_dict, device, fp16=True):
+    with autocast(enabled=fp16):
+        outputs = model(**batch_dict)
+        embeddings = last_token_pool(outputs.last_hidden_state, batch_dict['attention_mask'])
+        embeddings = F.normalize(embeddings.float(), p=2, dim=1)
+    return embeddings
+```
+
+#### 索引生成
+
+```
+# 读取文本数据
+jsonl_path = "../datasets/Fin_Corpus/demo_embedding.jsonl"
+# FAISS index 生成
+save_path = "./datasets/database/faiss_qwen"  # Faiss index 
+# BM25 index 生成
+json_slice_path = "./datasets/Fin_Corpus/clean_bm25" # 每一个语料进行分词
+index_path = "../datasets/database/bm25" #BM25 index
+
+python search_engine/faiss/index_builder.py
+```
+
+### 稀疏检索
+
+这里使用的是BM25算法，分词器使用的是jieba，但是企业级别的BM25算法一般会使用专业垂域语料库进行分词，同时还会在计算BM25 Score的时候对这些专业词汇进行加权，从而能够避免专业词汇在稠密检索过程中会出现被语义忽视。
+
+
+
+可以进行的创新：
+
+主要是对于饱和词频会限制，当某个词在文档中出现次数超过10次之后会（我们当时是改成了5）停止增加该词的词频，避免关键词堆砌导致出错。另外一个创新是结合google的报告中，对于专有名词，金融领域的词表进行加权(赋权是1.2)。（计算时间，是否改源代码，**BM25算法也需要调参**）
+
+
+
+而且，对于金融当中存在一些股票基金代码，所以这种文档的数字也需要计算词频：
+
+```json
+{"股票代码":"002851","交易日期":"20190125","一级行业名称":"电力设备"}
+```
+
+使用pyserini进行加速搜索，但是需要安装java环境javac
+
+[Archived OpenJDK GA Releases](https://jdk.java.net/archive/)（下载jdk17以上）
+
+[Ubuntu安装Java环境配置 | 命令详解 | 用户不在sudoers文件中。此事将被报告解决方法-CSDN博客](https://blog.csdn.net/2301_80082921/article/details/147552144)
+
+```
+cd pkgs/
+wget https://download.oracle.com/otn/java/jdk/11.0.9+11/90cf0d8e399443b8860e362981365b51/JDK-11.0.9_linux-x64_bin.tar.gz #如果不行，需要本地下载解压
+tar -zxvf JDK-11.0.9_linux-x64_bin.tar.gz
+# 验证能否使用
+jdk-11.0.9/bin/java -version
+# 环境变量
+vim ~/.bashrc
+export JAVA_HOME=/mypool/lzq/LLM/Domain-Specific-Deep-Research-agent/pkgs/jdk-17.0.2
+export JRE_HOME=${JAVA_HOME}/jre
+export CLASSPATH=.:${JAVA_HOME}/lib:${JRE_HOME}/lib
+export PATH=${JAVA_HOME}/bin:$PATH
+
+# 另外需要设置一下JVM，先在pkg文件夹find . -name "libjvm.so"，然后把带有server的路径填一下
+export JVM_PATH=/mypool/lzq/LLM/Domain-Specific-Deep-Research-agent/pkgs/jdk-17.0.2/lib/server/libjvm.so
+export LD_LIBRARY_PATH=$(dirname "$JVM_PATH"):$LD_LIBRARY_PATH
+source ~/.bashrc
+```
+
+
+
+### 混合检索
+
+
+
+### 部署
+
+- 其中$\alpha$是混合检索的权重，这里面可以越大，越偏向于BM25检索
+- retrieval_method决定使用哪一种检索方式
+
+```
+ python retrieval_server.py \
+   --port 8080 \
+   --alpha 0.6 \
+   --top_k 5 \
+   --index_bm25_path "./datasets/database/bm25" \
+   --index_faiss_path "./datasets/database/faiss_qwen/faiss_index.bin" \
+   --task_desc "根据给定的搜索查询，检索最相关的段落来回答问题" \
+   --jsonl_path "../datasets/OmniEval-Corpus/all_data_clean.jsonl" \
+   --log_path "../logs/retrieval" \
+   --embedding_model_path ".pretrain_models/embedding/Qwen3-Embedding-0.6B" \
+   --retrieval_method "dense"
+```
+
+然后运行search_engine/faiss/retrieval_server_test.py
+
+进行尝试
+
