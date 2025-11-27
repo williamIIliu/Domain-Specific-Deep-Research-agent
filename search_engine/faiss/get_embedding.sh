@@ -1,4 +1,4 @@
-python -m torch.distributed.run --nproc_per_node=1 \
+python -m torch.distributed.run --nproc_per_node=2 \
   search_engine/faiss/get_embedding.py \
   --jsonl_path="./datasets/OmniEval-Corpus/all_data_clean.jsonl" \
   --model_path="./pretrain_models/embedding/Qwen3-Embedding-0.6B" \
