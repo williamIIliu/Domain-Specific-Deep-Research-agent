@@ -12,7 +12,7 @@ import requests
 # ------------------------- 启动服务 -------------------------
 if __name__ == "__main__":
     # 测试服务
-    url = "http://localhost:8020/retrieve"
+    url = "http://localhost:8080/retrieve"
 
     data = {
         "queries": ["基金代码009730在2021年6月15日的单位净值是多少？"],
