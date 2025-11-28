@@ -4,14 +4,14 @@
 
 INFONCE_MASK_FAKE_NEGATIVE=true \ 
 CUDA_VISIBLE_DEVICES=0,1 \
-nproc_per_node=1
+nproc_per_node=2
 NPROC_PER_NODE=$nproc_per_node \
 swift sft \
     --model ./pretrain_models/embedding/Qwen3-Embedding-0.6B \
     --task_type embedding \
     --model_type qwen3_emb \
     --train_type lora \
-    --lora_rank 1 \
+    --lora_rank 32 \
     --lora_alpha 32 \
     --lora_dropout 0.05 \
     --dataset ./datasets/embedding/infonce_neg.jsonl \
