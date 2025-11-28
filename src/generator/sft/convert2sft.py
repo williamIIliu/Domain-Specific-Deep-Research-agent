@@ -145,22 +145,6 @@ def main():
     example = train_verl[0]
     print(f"question: {example['question'][:200]}...")
     print(f"answer: {example['answer'][:200]}...")
-    
-    print("\n" + "="*50)
-    print("verl SFT训练命令示例:")
-    print("="*50)
-    print(f"""
-torchrun --standalone --nnodes=1 --nproc_per_node=8 \\
-    -m verl.trainer.fsdp_sft_trainer \\
-    data.train_files={train_path} \\
-    data.val_files={test_path} \\
-    data.prompt_key=question \\
-    data.response_key=answer \\
-    data.max_length=4096 \\
-    model.partial_pretrain=Qwen/Qwen2.5-7B-Instruct \\
-    trainer.project_name=deepfinance-sft
-""")
-
 
 if __name__ == "__main__":
     main()
