@@ -22,7 +22,7 @@ NPROC_PER_NODE=2 swift sft \
     --eval_steps 20 \
     --num_train_epochs 2 \
     --save_steps 20 \
-    --per_device_train_batch_size 32 \
+    --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 4 \
     --learning_rate 1e-4 \
