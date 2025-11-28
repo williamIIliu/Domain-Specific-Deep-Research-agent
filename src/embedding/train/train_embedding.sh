@@ -28,4 +28,9 @@ swift sft \
     --loss_type infonce \
     --label_names labels \
     --dataloader_drop_last true \
-    --deepspeed zero3
+    --deepspeed zero3 \
+    --logging_steps 10 \
+    --report_to wandb \
+    --wandb_project BDI \
+    --run_name qwen3_emb_0.6b_lora_infonce \
+    --logging_dir ./logs
