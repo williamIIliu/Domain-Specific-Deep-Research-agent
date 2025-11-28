@@ -1,6 +1,7 @@
 # ref doc: https://github.com/QwenLM/Qwen3-Embedding/blob/main/docs/training/SWIFT.md
 # uv pip install ms-swift
 # INFONCE_MASK_FAKE_NEGATIVE=true:过滤掉假负样本，也就是负样本的相似度超过正样本的
+# https://docs.swanlab.cn/guide_cloud/integration/integration-swift.html
 
 export INFONCE_MASK_FAKE_NEGATIVE=true 
 export CUDA_VISIBLE_DEVICES=0,1
@@ -30,7 +31,7 @@ NPROC_PER_NODE=2 swift sft \
     --dataloader_drop_last true \
     --deepspeed zero3 \
     --logging_steps 10 \
-    --report_to wandb \
-    --wandb_project BDI \
-    --run_name qwen3_emb_0.6b_lora_infonce \
+    --report_to swanlab \ 
+    --swanlab_project swift-robot \ 
+    --swanlab_exp_name qwen3_emb_0.6b_lora_infonce \
     --logging_dir ./logs
