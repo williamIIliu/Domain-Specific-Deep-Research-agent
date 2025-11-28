@@ -12,16 +12,18 @@ NPROC_PER_NODE=2 swift sft \
     --task_type embedding \
     --model_type qwen3_emb \
     --train_type lora \
-    --lora_rank 32 \
+    --lora_rank 16 \
     --lora_alpha 32 \
     --lora_dropout 0.05 \
+    --warmup_ratio 0.05 \
     --dataset ./datasets/embedding/infonce_neg.jsonl \
+    --max_length 1310 \
     --split_dataset_ratio 0.05 \
     --eval_strategy steps \
     --output_dir output \
     --eval_steps 20 \
     --num_train_epochs 2 \
-    --save_steps 20 \
+    --save_steps 100 \
     --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 4 \
