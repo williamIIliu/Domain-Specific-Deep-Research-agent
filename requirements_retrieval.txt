@@ -1,7 +1,6 @@
 dotenv
 faiss-cpu
 rank_bm25
-pyserini
 langchain
 jieba
 json-repair
@@ -13,3 +12,5 @@ langchain-community
 ms-swift
 deepspeed
 transformers>=4.51.0
+pyserini
+swanlab
