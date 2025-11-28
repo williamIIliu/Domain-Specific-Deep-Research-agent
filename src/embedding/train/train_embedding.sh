@@ -31,7 +31,7 @@ NPROC_PER_NODE=2 swift sft \
     --dataloader_drop_last true \
     --deepspeed zero3 \
     --logging_steps 10 \
-    --report_to swanlab \ 
-    --swanlab_project swift-robot \ 
+    --report_to swanlab \
+    --swanlab_project swift-robot \
     --swanlab_exp_name qwen3_emb_0.6b_lora_infonce \
     --logging_dir ./logs
