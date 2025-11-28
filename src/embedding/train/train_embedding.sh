@@ -3,11 +3,11 @@
 # INFONCE_MASK_FAKE_NEGATIVE=true:过滤掉假负样本，也就是负样本的相似度超过正样本的
 
 export INFONCE_MASK_FAKE_NEGATIVE=true 
-export CUDA_VISIBLE_DEVICES=0,1 
+export CUDA_VISIBLE_DEVICES=0,1
 
-swift sft \
+# 使用SWIFT_NPROC_PER_NODE启动多卡训练
+NPROC_PER_NODE=2 swift sft \
     --model ./pretrain_models/embedding/Qwen3-Embedding-0.6B \
-    --nproc_per_node 2 \
     --task_type embedding \
     --model_type qwen3_emb \
     --train_type lora \
