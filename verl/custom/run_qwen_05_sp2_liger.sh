@@ -1,6 +1,7 @@
 set -x
+export CUDA_VISIBLE_DEVICES=0,1
 
-torchrun --standalone --nnodes=2 --nproc_per_node=$nproc_per_node \
+torchrun --standalone --nnodes=1 --nproc_per_node=2 \
      -m verl.trainer.fsdp_sft_trainer \
     data.train_files=../datasets/Agentar-DeepFinance-100K/train.parquet \
     data.val_files=../datasets/Agentar-DeepFinance-100K/test.parquet \
