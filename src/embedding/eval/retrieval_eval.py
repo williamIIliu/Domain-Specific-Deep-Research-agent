@@ -168,7 +168,7 @@ def main():
     parser.add_argument(
         "--test_file", 
         type=str, 
-        default="datasets/embedding/retriever_test_QA.jsonl",
+        default="datasets/embedding/retrieval_test_QA.jsonl",
         help="测试数据集路径"
     )
     parser.add_argument(
