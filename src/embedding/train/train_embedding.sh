@@ -2,12 +2,12 @@
 # uv pip install ms-swift
 # INFONCE_MASK_FAKE_NEGATIVE=true:过滤掉假负样本，也就是负样本的相似度超过正样本的
 
-INFONCE_MASK_FAKE_NEGATIVE=true \ 
-CUDA_VISIBLE_DEVICES=0,1 \
-nproc_per_node=2
-NPROC_PER_NODE=$nproc_per_node \
+export INFONCE_MASK_FAKE_NEGATIVE=true 
+export CUDA_VISIBLE_DEVICES=0,1 
+
 swift sft \
     --model ./pretrain_models/embedding/Qwen3-Embedding-0.6B \
+    --nproc_per_node 2 \
     --task_type embedding \
     --model_type qwen3_emb \
     --train_type lora \
