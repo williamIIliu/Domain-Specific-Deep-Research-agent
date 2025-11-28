@@ -43,8 +43,15 @@ def retrieve(query: str, topk: int, retrieval_type: str, hybrid_alpha: float, se
         )
         result = response.json()
         # 返回第一个query的结果
-        if "results" in result and len(result["results"]) > 0:
-            return result["results"][0]
+        # 服务返回格式: {"code": 200, "message": "success", "data": [[{...}, {...}], ...]}
+        # data 是二维数组: data[query_idx][result_idx]
+        if "data" in result and len(result["data"]) > 0:
+            first_query_results = result["data"][0]
+            # 如果是二维数组，取第一个query的结果列表
+            if isinstance(first_query_results, list):
+                return first_query_results
+            # 如果直接是结果字典，包装成列表
+            return [first_query_results]
         return []
     except Exception as e:
         print(f"检索失败: {e}")
@@ -74,6 +81,19 @@ def evaluate(test_data: List[Dict], retrieval_type: str, hybrid_alpha: float,
     print(f"\n开始评估 {retrieval_type} 检索方式...")
     print(f"测试样本数: {total}")
     
+    # 调试：打印第一个样本的检索结果
+    if test_data:
+        first_item = test_data[0]
+        first_query = first_item.get("query", "")
+        first_gt_id = first_item.get("id", "")
+        first_results = retrieve(first_query, topk, retrieval_type, hybrid_alpha, server_url)
+        print(f"\n[调试] 第一个样本:")
+        print(f"  Query: {first_query[:50]}...")
+        print(f"  Ground Truth ID: {first_gt_id}")
+        print(f"  检索返回数量: {len(first_results)}")
+        if first_results:
+            print(f"  第一个结果: {first_results[0]}")
+    
     for item in tqdm(test_data, desc="评估进度"):
         query = item.get("query", "")
         ground_truth_id = item.get("id", "")
@@ -85,10 +105,12 @@ def evaluate(test_data: List[Dict], retrieval_type: str, hybrid_alpha: float,
         results = retrieve(query, topk, retrieval_type, hybrid_alpha, server_url)
         
         # 提取返回的文档ID列表
+        # 返回格式: [{"id": "xxx", "contents": "...", "score": 0.9}, ...]
         retrieved_ids = []
         for r in results:
             if isinstance(r, dict):
-                retrieved_ids.append(r.get("id", ""))
+                doc_id = r.get("id", "")
+                retrieved_ids.append(doc_id)
             elif isinstance(r, str):
                 retrieved_ids.append(r)
         
