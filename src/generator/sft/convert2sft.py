@@ -7,7 +7,7 @@ verl SFT格式要求:
 - answer: 模型回答 (字符串)
 
 Usage:
-    python scripts/convert_deepfinance_to_verl.py \
+    python src/generator/sft/convert2sft.py \
         --input_dir datasets/Agentar-DeepFinance-100K \
         --output_dir datasets/Agentar-DeepFinance-100K \
         --train_ratio 0.95
