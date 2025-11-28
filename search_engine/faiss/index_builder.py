@@ -170,7 +170,7 @@ if __name__ == "__main__":
 
     # BM25 index 生成
     json_slice_path = "./datasets/database/bm25_tokenize"
-    index_path = "../datasets/database/bm25"
+    index_path = "./datasets/database/bm25"
     build_BM25_index(jsonl_path, json_slice_path, index_path)
 
 
