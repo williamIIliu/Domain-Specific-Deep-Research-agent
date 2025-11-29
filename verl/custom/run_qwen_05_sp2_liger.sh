@@ -8,8 +8,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     data.prompt_key=question \
     data.response_key=answer \
     optim.lr=1e-4 \
-    data.prompt_dict_keys=['question'] \
-    +data.response_dict_keys=['answer'] \
     data.micro_batch_size=4 \
     model.partial_pretrain=../pretrain_models/generator/Qwen3-8B \
     model.use_liger=True \
