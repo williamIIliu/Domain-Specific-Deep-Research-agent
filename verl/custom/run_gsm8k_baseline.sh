@@ -34,6 +34,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
+    actor_rollout_ref.actor.fsdp_config.offload_params=False \
     actor_rollout_ref.actor.use_torch_compile=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
@@ -46,7 +47,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.ref.strategy=fsdp2 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=False \
+    actor_rollout_ref.ref.fsdp_config.offload_params=False \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.n=4 \
