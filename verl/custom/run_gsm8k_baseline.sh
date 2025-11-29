@@ -1,7 +1,8 @@
 # make sure your current working directory is the root of the project
+# export RAY_DEDUP_LOGS=0
+# export HYDRA_FULL_ERROR=1
+
 export CUDA_VISIBLE_DEVICES=0,1
-export RAY_DEDUP_LOGS=0
-export HYDRA_FULL_ERROR=1
 
 set -x
 ray start --head --num-gpus=2
@@ -27,14 +28,13 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     data.shuffle=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.model.lora_rank=0 \
+    actor_rollout_ref.model.lora_rank=1 \
     actor_rollout_ref.model.lora_alpha=32 \
     actor_rollout_ref.model.target_modules=all-linear \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.strategy=fsdp2 \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.use_torch_compile=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
