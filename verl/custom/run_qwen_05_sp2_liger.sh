@@ -16,19 +16,26 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     data.prompt_key=question \
     data.response_key=answer \
     data.max_length=1508 \
-    optim.lr=1e-4 \
-    data.micro_batch_size=4 \
+    data.train_batch_size=64 \
+    data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=${MODEL_PATH}\
     model.use_liger=True \
-    model.lora_rank: 32  \
-    model.lora_alpha: 64  \
-    model.target_modules: all-linear  \
-    model.fsdp_config.model_dtype: bf16 \
-    model.fsdp_config.cpu_offload: True \
-    model.fsdp_config.offload_params: True \
+    model.lora_rank=32  \
+    model.lora_alpha=64  \
+    model.target_modules=all-linear  \
+    model.fsdp_config.model_dtype=bf16 \
+    model.fsdp_config.cpu_offload=True \
+    model.fsdp_config.offload_params=True \
+    trainer.max_ckpt_to_keep=5 \
+    trainer.total_epochs=2 \
+    trainer.seed=42 \
+    trainer.test_freq=100 \
     trainer.default_local_dir=${SAVE_PATH} \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
+    trainer.resume_mode=auto \
+    trainer.resume_from_path=${SAVE_PATH} \
+    optim.lr=1e-4 \
     ulysses_sequence_parallel_size=2 \
     use_remove_padding=true \
     trainer.logger='["swanlab"]' 
