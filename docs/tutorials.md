@@ -1,6 +1,18 @@
+# 检索系统与模块微调
 
+## 1. 环境
 
-## 环境
+### 1.1 UV
+
+通过UV可以管理过个项目环境，仅需在不同项目文件夹中安装.venv文件，在运行代码的过程中使用
+
+```shell
+uv run python ···
+```
+
+#### 1.1.1 retrieval项目
+
+为了防止出现显存OOM，这里我安装的是faiss cpu进行检索（查询时数据会移动到内存），在search_engine文件夹已经做了进行相应更改。
 
 ```
 # 安装uv
@@ -8,22 +20,54 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 uv venv .venv --python 3.10
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv pip install -r requirements_retrieval.txt
 
 export PYTHONPATH="$PWD:$PYTHONPATH"
 ```
 
-微调数据集
 
-### 模型权重
+
+#### 1.1.2 VeRL项目
+
+verl环境安装中flash-attn很容易出问题，所以建议在`./requirements_sglang.txt`中删除flash-attn这一行后，在本地安装。
+
+```
+git clone https://github.com/volcengine/verl.git
+cd verl
+uv venv .venv --python 3.12
+source .venv/bin/activate
+uv pip install -e .
+uv pip install -r ./requirements_sglang.txt
+export PYTHONPATH="$PWD:$PYTHONPATH"
+```
+
+安装完sgl之后你会发现安装的torch版本锁定在了torch==2.8，然而能够支持的flash-attn只有`flash_attn-2.8.1+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl`这一版本，所以只能安装python=3.12
+
+手动安装
+
+```
+mkdir -p pkgs && cd pkgs
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.1/flash_attn-2.8.1+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+uv pip install flash_attn-2.8.1+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+```
+
+
+
+### 1.2 数据集下载
+
+
+
+### 1.3 预训练权重
 
 ```
 modelscope download --model Qwen/Qwen3-Embedding-0.6B  --local_dir ./pretrain_models/embedding/Qwen3-Embedding-0.6B
+
+modelscope download --model Qwen/Qwen3-8B  --local_dir ./pretrain_models/generator/Qwen3-8B
 ```
 
 
 
-## 2 Q&A双阶段蒸馏
+## 2. Q&A双阶段蒸馏
 
 参考Qwen3 Embedding 模型的数据制作思路，加入instruct进行指令微调，对于一个doument（作为正例）构建一个query，然后选择预训练的Embedding模型召回的多个结果作为负样本。
 
@@ -149,7 +193,17 @@ python src/embedding/distill/distill_complete.py
 
 
 
-## 微调数据集
+## 3. 微调数据集
+
+### 3.1 数据集准备
+
+ms-swift对Qwen3 Embedding进行微淘
+
+标准格式
+
+#### 样本对
+
+### 3.2 训练代码
 
 使用ms-swift对Embedding模型进行训练
 
@@ -186,9 +240,33 @@ swift sft \
     --swanlab_project embedding_finetune
 ```
 
+#### LoRA合并
 
 
-## 数据库
+
+### 3.3 训练评估
+
+#### 评估指标
+
+基于retrieval系统进行检测，
+
+支持 dense, bm25, hybrid 三种检索方式
+
+评估指标: Top3@accuracy, Top5@accuracy, MRR
+
+
+
+#### 评估代码
+
+主要是基于`src/embedding/eval/retrieval_eval.py`完成
+
+```shell
+bash src/embedding/eval/retrieval_eval.sh
+```
+
+
+
+## 4. 数据库
 
 其实这里使用Milvus或者是Elastic Search能够加速非常多（3-5倍，并且更好的检索效果），但是考虑到大多数用户没有sudo权限，所以这里使用Faiss作为向量数据库。同时Milvus数据库搭建也有相应代码，感兴趣的同学可以尝试。
 
@@ -236,8 +314,8 @@ jsonl_path = "../datasets/Fin_Corpus/demo_embedding.jsonl"
 # FAISS index 生成
 save_path = "./datasets/database/faiss_qwen"  # Faiss index 
 # BM25 index 生成
-json_slice_path = "./datasets/Fin_Corpus/clean_bm25" # 每一个语料进行分词
-index_path = "../datasets/database/bm25" #BM25 index
+json_slice_path = "./datasets/database/bm25_tokenize" # 每一个语料进行分词
+index_path = "./datasets/database/bm25" #BM25 index
 
 python search_engine/faiss/index_builder.py
 ```
@@ -312,5 +390,89 @@ source ~/.bashrc
 
 然后运行search_engine/faiss/retrieval_server_test.py
 
-进行尝试
 
+
+# 生成系统
+
+## SFT
+
+### 数据集
+
+#### 开源数据集
+
+这里我们使用蚂蚁7月份开源的金融数据来做RL训练数据集。因为：
+
+- 高质量的cot数据，
+- 蚂蚁的数据格式是选择题，这有一个好处就是在非数学题类的场景中是难以建立reward的，所以这种方法可以是通过选择的方法来取构建reward。
+
+```bash
+cd datasets
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download antgroup/Agentar-DeepFinance-100K --local-dir ./Agentar-DeepFinance-100K
+
+# SFT格式数据处理
+python .py \
+--input_dir datasets/Agentar-DeepFinance-100K \
+--output_dir datasets/Agentar-DeepFinance-100K \
+--train_ratio 0.95
+```
+
+然后使用VeRL框架训练，由FSDP加速
+
+```
+cd verl
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
+sh custom/run_qwen_05_sp2_liger.sh
+```
+
+#### 训练参数
+
+config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
+
+**重点参数**
+
+1. lora rank
+
+   32才会有明显效果
+
+2. max_lenght
+   COT推理链条超过2048的很少，所以这里设置最大长度为2028，同时设置右截断，保证推理初始的一致性
+
+3. use_liger
+
+   **Liger Kernel** 是一个针对 LLM 训练优化的 Triton 内核库，主要优化以下计算：
+
+   | 优化组件               | 作用                                                       |
+   | :--------------------- | :--------------------------------------------------------- |
+   | **Fused CrossEntropy** | 将 logits 计算和 loss 计算融合，避免存储巨大的 logits 张量 |
+   | **Fused RMSNorm**      | 融合 RMSNorm 的多个操作                                    |
+   | **Fused RoPE**         | 融合旋转位置编码计算                                       |
+   | **Fused SwiGLU**       | 融合 SwiGLU 激活函数                                       |
+
+   通过算子融合（Kernel Fusion），减少中间结果的显存占用和内存带宽消耗。
+
+   - 节省显存
+
+     中等（约 20-30%），cpu offload （可节省 50%+ 参数显存）
+
+   - 速度
+     加快计算效果好
+
+
+
+
+
+#### 蒸馏数据集
+
+同时也需要包含自己业务场景下的常见问题，例如：
+
+- 利率是1.2，接两个月需要多少钱，如果还款迟了一个月，需要多交多少钱
+
+
+
+## RL
+
+过程-结果多阶段奖励
+
+工具调用奖励
