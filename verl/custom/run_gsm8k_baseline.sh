@@ -19,8 +19,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files="$TRAIN_DATA_PATH" \
     data.val_files="$VAL_DATA_PATH" \
-    data.train_batch_size=64 \
-    data.val_batch_size=32 \
+    data.train_batch_size=16 \
+    data.val_batch_size=8 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
