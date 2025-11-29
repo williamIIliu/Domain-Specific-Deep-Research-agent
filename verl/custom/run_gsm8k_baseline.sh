@@ -1,5 +1,7 @@
 # make sure your current working directory is the root of the project
 export CUDA_VISIBLE_DEVICES=0,1
+export RAY_DEDUP_LOGS=0
+export HYDRA_FULL_ERROR=1
 
 set -x
 ray start --head --num-gpus=2
@@ -46,7 +48,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.name=sglang \
-    actor_rollout_ref.rollout.max_model_len=2048 \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.n=4 \
     actor_rollout_ref.rollout.temperature=1.0 \
