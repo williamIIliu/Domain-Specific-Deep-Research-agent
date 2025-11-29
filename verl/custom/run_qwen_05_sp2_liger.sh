@@ -25,8 +25,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     model.lora_alpha=64  \
     model.target_modules=all-linear  \
     model.fsdp_config.model_dtype=bf16 \
-    model.fsdp_config.cpu_offload=True \
-    model.fsdp_config.offload_params=True \
+    model.fsdp_config.cpu_offload=False \
+    model.fsdp_config.offload_params=False \
     trainer.max_ckpt_to_keep=5 \
     trainer.total_epochs=2 \
     trainer.seed=42 \
