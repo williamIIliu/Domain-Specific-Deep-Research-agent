@@ -64,4 +64,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.resume_mode=disable \
     trainer.logger='["swanlab", "console"]' \
     trainer.project_name=$WAND_PROJECT \
-    trainer.experiment_name=$EXPERIMENT_NAME \ $@
+    trainer.experiment_name=$EXPERIMENT_NAME $@
