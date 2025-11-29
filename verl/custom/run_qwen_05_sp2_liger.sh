@@ -15,7 +15,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     data.val_files=${DATA_PATH}/test.parquet \
     data.prompt_key=question \
     data.response_key=answer \
-    data.max_length=1508 \
+    data.max_length=2048 \
+    data.truncation=right \
     data.train_batch_size=64 \
     data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=${MODEL_PATH}\
