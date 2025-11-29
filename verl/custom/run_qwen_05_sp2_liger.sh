@@ -18,5 +18,4 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     trainer.experiment_name=Qwen3-8B-SFT-Agentar100K \
     ulysses_sequence_parallel_size=2 \
     use_remove_padding=true \
-    trainer.logger='["swanlab"]' \
-    save_path=../output/Qwen3-8B-SFT-Agentar100K 
+    trainer.logger='["swanlab"]' 
