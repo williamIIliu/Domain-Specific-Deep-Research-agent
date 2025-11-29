@@ -33,7 +33,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     trainer.default_local_dir=${SAVE_PATH} \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXPERIMENT_NAME} \
-    trainer.resume_mode=disabled \
+    trainer.resume_mode=disable \
     trainer.resume_from_path=${SAVE_PATH} \
     optim.lr=1e-4 \
     ulysses_sequence_parallel_size=2 \
