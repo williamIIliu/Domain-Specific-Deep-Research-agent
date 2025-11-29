@@ -20,11 +20,11 @@ __pycache__/
 .DS_Store
 
 # 数据集和大文件
-pretrain_models/
-output/
+/pretrain_models/
+/output/
 pkgs/
-backup/
-models/
+/backup/
+/models/
 
 # 索引文件
 *_index/
