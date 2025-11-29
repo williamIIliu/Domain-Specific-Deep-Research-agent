@@ -62,6 +62,6 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=100 \
     trainer.default_local_dir="../output/${EXPERIMENT_NAME}" \
     trainer.resume_mode=disable \
-    trainer.logger='["swanlab"]' \
+    trainer.logger='["swanlab", "console"]' \
     trainer.project_name=$WAND_PROJECT \
     trainer.experiment_name=$EXPERIMENT_NAME \ $@
