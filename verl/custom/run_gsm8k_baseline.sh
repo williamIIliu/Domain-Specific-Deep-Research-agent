@@ -9,7 +9,7 @@ TRAIN_DATA_PATH="../datasets/gsm8k_baseline/train.parquet"
 VAL_DATA_PATH="../datasets/gsm8k_baseline/test.parquet"
 
 PROJECT_NAME="BDI"
-EXPERIMENT_NAME="qwen3-8b_gsm8k_baseline"
+EXPERIMENT_NAME="Qwen3-8B-gsm8k-GRPO-Baseline"
 
 MODEL_PATH="../pretrain_models/generator/Qwen3-8B"
 
