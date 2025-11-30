@@ -672,7 +672,7 @@ class RayPPOTrainer:
         if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
             metric_dict["val-aux/reward_answer/mean"] = float(np.mean(reward_extra_infos_dict["answer"]))
         if "progress" in reward_extra_infos_dict and len(reward_extra_infos_dict["progress"]) > 0:
-            metric_dict["val-aux/reward_process/mean"] = float(np.mean(reward_extra_infos_dict["progress"]))
+            metric_dict["val-aux/reward_progress/mean"] = float(np.mean(reward_extra_infos_dict["progress"]))
 
         return metric_dict
 
@@ -1185,7 +1185,7 @@ class RayPPOTrainer:
                             if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
                                 metrics["critic/reward_answer"] = float(np.mean(reward_extra_infos_dict["answer"]))
                             if "progress" in reward_extra_infos_dict and len(reward_extra_infos_dict["progress"]) > 0:
-                                metrics["critic/reward_process"] = float(np.mean(reward_extra_infos_dict["progress"]))
+                                metrics["critic/reward_progress"] = float(np.mean(reward_extra_infos_dict["progress"]))
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
