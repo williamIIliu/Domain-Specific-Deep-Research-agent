@@ -230,11 +230,13 @@ class FSDPSFTTrainer:
         )
 
         with init_context():
+            # 从配置中读取 attn_implementation，默认使用 sdpa（不依赖 flash-attn）
+            attn_impl = self.config.model.get("attn_implementation", "sdpa")
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
                 local_model_path,
                 config=config,
                 torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_impl,
                 trust_remote_code=trust_remote_code,
             )
 
