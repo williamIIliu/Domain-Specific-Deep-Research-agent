@@ -4,10 +4,10 @@
 
 ### 1.1 UV
 
-通过UV可以管理过个项目环境，仅需在不同项目文件夹中安装.venv文件，在运行代码的过程中使用
+通过UV可以管理过个项目环境，仅需在不同项目文件夹中安装.venv文件，在运行代码的过程分别进行activate
 
 ```shell
-uv run python ···
+run python ···
 ```
 
 #### 1.1.1 retrieval项目
@@ -206,6 +206,8 @@ ms-swift对Qwen3 Embedding进行微淘
 ### 3.2 训练代码
 
 使用ms-swift对Embedding模型进行训练
+
+
 
 ```bash
 INFONCE_MASK_FAKE_NEGATIVE=true \ # 过滤掉假负样本，也就是负样本的相似度超过正样本的
@@ -420,7 +422,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download antgroup/Agentar-DeepFinance-100K --local-dir ./Agentar-DeepFinance-100K
 
 # SFT格式数据处理
-python .py \
+python src/generator/sft/convert2sft.py \
 --input_dir datasets/Agentar-DeepFinance-100K \
 --output_dir datasets/Agentar-DeepFinance-100K \
 --train_ratio 0.95
@@ -432,7 +434,7 @@ python .py \
 cd verl
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
-sh custom/run_qwen_05_sp2_liger.sh
+sh custom/run_qwen_sft.sh
 ```
 
 #### 1.1.2 训练参数
