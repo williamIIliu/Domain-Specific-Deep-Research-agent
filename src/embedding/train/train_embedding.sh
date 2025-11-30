@@ -12,7 +12,7 @@ NPROC_PER_NODE=2 swift sft \
     --task_type embedding \
     --model_type qwen3_emb \
     --train_type lora \
-    --lora_rank 16 \
+    --lora_rank 32 \
     --lora_alpha 32 \
     --lora_dropout 0.05 \
     --warmup_ratio 0.05 \
@@ -24,6 +24,7 @@ NPROC_PER_NODE=2 swift sft \
     --eval_steps 20 \
     --num_train_epochs 2 \
     --save_steps 100 \
+     --output_dir  ./output/embedding/Qwen3-0.6B_finetune \
     --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 32 \
     --gradient_accumulation_steps 4 \
@@ -35,5 +36,5 @@ NPROC_PER_NODE=2 swift sft \
     --logging_steps 10 \
     --report_to swanlab \
     --swanlab_project BDI \
-    --swanlab_exp_name qwen3_emb_0.6b_lora_infonce \
+    --swanlab_exp_name Qwen3_emb_0.6B_lora_infonce \
     --logging_dir ./logs
