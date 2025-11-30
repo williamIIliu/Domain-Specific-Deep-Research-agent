@@ -304,36 +304,43 @@ class HybridRetriever(BaseRetriever):
 
     def _merge_results(self, bm25_docs, bm25_scores, dense_docs, dense_scores, bm25_ids, dense_ids) -> List[Dict]:
         """
-        合并两种检索结果：
-        - 用文档ID作为唯一标识，融合归一化后的分数
+        合并两种检索结果（基于排名的 Reciprocal Rank Fusion）：
+        - 使用 RRF 公式：score = sum(1 / (k + rank))，其中 k 是平滑常数
+        - 排名越靠前，得分越高
         - 最终按融合分数倒序排序
         """
+        k = 60  # RRF 平滑常数，常用值为 60
+        
         # 构建文档ID到内容的映射（去重）
         doc_id_to_content = {}
         for doc_id, content in zip(bm25_ids, bm25_docs):
             doc_id_to_content[doc_id] = content
         for doc_id, content in zip(dense_ids, dense_docs):
-            doc_id_to_content[doc_id] = content  # 若ID重复，稠密检索结果覆盖BM25（不影响，内容一致）
+            doc_id_to_content[doc_id] = content
 
-        # 归一化两种检索的分数
-        norm_bm25 = self._normalize_scores(bm25_scores)
-        norm_dense = self._normalize_scores(dense_scores)
-        # print(norm_bm25)
-        # print(norm_dense)
-
-        # 构建文档ID到分数的映射（融合分数 = alpha*稠密分数 + (1-alpha)*BM25分数）
+        # 分别计算两个检索器的 RRF 分数
+        bm25_rrf_scores = {}
+        dense_rrf_scores = {}
+        
+        # BM25 RRF 分数（排名从1开始）
+        for rank, doc_id in enumerate(bm25_ids, start=1):
+            bm25_rrf_scores[doc_id] = 1.0 / (k + rank)
+        
+        # Dense RRF 分数（排名从1开始）
+        for rank, doc_id in enumerate(dense_ids, start=1):
+            dense_rrf_scores[doc_id] = 1.0 / (k + rank)
+        
+        # 获取所有文档ID
+        all_doc_ids = set(bm25_rrf_scores.keys()) | set(dense_rrf_scores.keys())
+        
+        # 加权融合：final_score = alpha * dense_rrf + (1 - alpha) * bm25_rrf
         doc_id_to_score = {}
-        # 加入BM25分数
-        for doc_id, score in zip(bm25_ids, norm_bm25):
-            doc_id_to_score[doc_id] = (1 - self.alpha) * score
-        # 加入稠密检索分数（叠加）
-        for doc_id, score in zip(dense_ids, norm_dense):
-            if doc_id in doc_id_to_score:
-                doc_id_to_score[doc_id] += self.alpha * score
-            else:
-                doc_id_to_score[doc_id] = self.alpha * score
+        for doc_id in all_doc_ids:
+            bm25_score = bm25_rrf_scores.get(doc_id, 0.0)
+            dense_score = dense_rrf_scores.get(doc_id, 0.0)
+            doc_id_to_score[doc_id] = self.alpha * dense_score + (1 - self.alpha) * bm25_score
 
-        # 按融合分数倒序排序，并保留文档ID及内容
+        # 按融合分数倒序排序
         sorted_doc_ids = sorted(doc_id_to_score.items(), key=lambda x: x[1], reverse=True)
 
         # 将排序后的ID映射回文档内容
