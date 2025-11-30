@@ -21,6 +21,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=2 \
     data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=${MODEL_PATH}\
     model.use_liger=True \
+    model.enable_gradient_checkpointing=True \
     model.lora_rank=32  \
     model.lora_alpha=64  \
     model.target_modules=all-linear  \
