@@ -252,6 +252,8 @@ def compute_answer_reward(response: str, ground_truth: str) -> Tuple[float, Dict
 def compute_process_reward(
     query: str, 
     response: str,
+    model_answer: str,
+    ground_truth: str,
     api_url: str = PRM_API_URL,
     api_key: str = PRM_API_KEY,
     model_name: str = PRM_MODEL_NAME,
@@ -279,14 +281,33 @@ def compute_process_reward(
         }
         
         # 构造评估 prompt
-        eval_prompt = f"""请评估以下推理过程的质量，给出 0-10 的分数。
+        eval_prompt = f"""请作为金融领域的专家，评估以下推理过程的质量，给出 0-10 的分数。
 
 问题：{query}
 
-推理过程：
+标准答案：
+{ground_truth}
+
+模型生成的推理过程：
 {think_content}
 
-请只输出一个数字分数（0-10）："""
+模型生成的最终答案：
+{model_answer}
+
+评分标准（用于评估思维/推理过程的质量，而不是只看最终答案）：
+1. 推理过程的一致性：
+   - 各步骤之间是否逻辑连贯，上下文是否前后一致，没有自相矛盾。
+2. 逐步正确性：
+   - 使用的公式是否正确，数据代入是否正确，每一步计算是否存在明显算术错误。
+3. 关键要素覆盖度：
+   - 是否完整覆盖了解决该金融问题所必须的关键步骤（读取题干数据、选取合适金融公式/方法、代入计算、检查结果合理性等）。
+4. 金融业务合理性：
+   - 推理过程是否符合基本金融常识和约束（如金额符号、比例范围、时间维度、利率含义等），没有明显违背业务常识的推理。
+5. 与标准答案的一致性：
+   - 在不直接抄袭标准答案的前提下，思维过程是否能够合理推导出标准答案 {ground_truth}，或者至少朝着正确方向逐步逼近。
+
+请综合以上维度给出一个 0-10 的总评分（0 表示推理过程几乎完全错误或无关，10 表示推理过程非常清晰、严谨且能够正确推导出标准答案）。
+只输出一个数字分数（0-10），不要输出任何其他文字。"""
         
         payload = {
             "model": model_name,
@@ -346,20 +367,32 @@ def compute_score(
     else:
         weights = weights.copy()
     
-    # 从 extra_info 中获取 query
+    # 从 extra_info 中获取 query 和 ground_truth
     query = ""
+    ground_truth_raw = ground_truth
     if extra_info and isinstance(extra_info, dict):
         query = extra_info.get("question", "")
+        ground_truth_raw = extra_info.get("answer", ground_truth)
     
     # 1. 格式奖励
-    format_reward, _ = compute_format_reward(solution_str)
+    format_reward, format_details = compute_format_reward(solution_str)
     
     # 2. 答案奖励
-    answer_reward, _ = compute_answer_reward(solution_str, ground_truth)
+    answer_reward, answer_details = compute_answer_reward(solution_str, ground_truth)
     
     # 3. 过程奖励
     if use_process_reward and query:
-        process_reward, _ = compute_process_reward(query, solution_str)
+        # 提取模型的最终答案
+        model_answer = answer_details.get("extracted_answer", "")
+        if not model_answer:
+             model_answer = extract_answer(solution_str) or ""
+             
+        process_reward, _ = compute_process_reward(
+            query=query, 
+            response=solution_str, 
+            model_answer=model_answer,
+            ground_truth=ground_truth_raw
+        )
     else:
         process_reward = 0.0
         weights["process"] = 0.0
@@ -403,10 +436,12 @@ def compute_score_with_details(
     else:
         weights = weights.copy()
     
-    # 从 extra_info 中获取 query
+    # 从 extra_info 中获取 query 和 ground_truth
     query = ""
+    ground_truth_raw = ground_truth
     if extra_info and isinstance(extra_info, dict):
         query = extra_info.get("question", "")
+        ground_truth_raw = extra_info.get("answer", ground_truth)
     
     # 1. 格式奖励
     format_reward, format_details = compute_format_reward(solution_str)
@@ -416,7 +451,17 @@ def compute_score_with_details(
     
     # 3. 过程奖励
     if use_process_reward and query:
-        process_reward, process_details = compute_process_reward(query, solution_str)
+        # 提取模型的最终答案
+        model_answer = answer_details.get("extracted_answer", "")
+        if not model_answer:
+             model_answer = extract_answer(solution_str) or ""
+
+        process_reward, process_details = compute_process_reward(
+            query=query, 
+            response=solution_str,
+            model_answer=model_answer,
+            ground_truth=ground_truth_raw
+        )
     else:
         process_reward = 0.0
         process_details = {"skipped": True}
@@ -451,7 +496,10 @@ if __name__ == "__main__":
     # 测试用例 - 严格格式
     response = "<think>Step1: 分析问题\nStep2: 计算结果\n</think><answer>the final result is<|box_start|>A<|box_end|></answer>"
     ground_truth = "A"
-    extra_info = {"question": "What is the answer?"}
+    extra_info = {
+        "question": "What is the answer?",
+        "answer": "The step-by-step solution leads to A. #### A"
+    }
     
     print("=" * 60)
     print("PRM Reward 测试 (严格格式)")
