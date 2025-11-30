@@ -17,7 +17,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=6 \
     data.response_key=answer \
     data.max_length=2048 \
     data.truncation=right \
-    data.train_batch_size=36 \
+    data.train_batch_size=24 \
     data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=${MODEL_PATH}\
     model.use_liger=False \
