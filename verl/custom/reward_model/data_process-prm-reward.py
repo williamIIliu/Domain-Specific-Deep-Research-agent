@@ -44,7 +44,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     local_dataset_path = args.local_dataset_path
 
-    data_source = "prm_reward"
+    data_source = "openai/gsm8k"
 
     if local_dataset_path is not None:
         dataset = datasets.load_dataset(local_dataset_path, "main")
@@ -66,7 +66,7 @@ if __name__ == "__main__":
             answer_raw = example.pop("answer")
             solution = extract_solution(answer_raw)
             data = {
-                "data_source": data_source,
+                "data_source": "prm_reward",
                 "prompt": [
                     {
                         "role": "user",
