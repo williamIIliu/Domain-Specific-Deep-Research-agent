@@ -33,7 +33,7 @@ PRM_MODEL_NAME = "reward_model"
 DEFAULT_WEIGHTS = {
     "format": 0.5,    # 格式奖励权重
     "answer": 1.0,    # 答案奖励权重
-    "process": 1.0,   # 过程奖励权重
+    "progress": 1.0,   # 过程奖励权重
 }
 
 
@@ -354,7 +354,7 @@ def compute_score(
         solution_str: 模型输出的完整响应
         ground_truth: 标准答案
         extra_info: 额外信息字典，包含 "query" 键用于过程奖励
-        weights: 各奖励权重，默认 {"format": 0.1, "answer": 0.5, "process": 0.4}
+        weights: 各奖励权重，默认 {"format": 0.1, "answer": 0.5, "progress": 0.4}
         use_process_reward: 是否使用过程奖励（需要 PRM 服务）
         format_score: 仅格式正确时的基础分
         answer_score: 答案正确时的满分
@@ -395,7 +395,7 @@ def compute_score(
         )
     else:
         process_reward = 0.0
-        weights["process"] = 0.0
+        weights["progress"] = 0.0
         total = weights["format"] + weights["answer"]
         if total > 0:
             weights["format"] /= total
@@ -405,14 +405,14 @@ def compute_score(
     final_score = (
         weights["format"] * format_reward +
         weights["answer"] * answer_reward +
-        weights["process"] * process_reward
+        weights["progress"] * process_reward
     )
     
     return {
         "score": final_score,
         "format": weights["format"] * format_reward,
         "answer":  weights["answer"] * answer_reward,
-        "process": weights["process"] * process_reward,
+        "progress": weights["progress"] * process_reward,
         "weights": weights
     }
     # return final_score
