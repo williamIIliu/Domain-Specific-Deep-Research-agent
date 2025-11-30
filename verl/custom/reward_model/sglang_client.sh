@@ -5,10 +5,12 @@ python -m sglang.launch_server \
 --trust-remote-code \
 --dtype bfloat16 \
 --served-model-name reward_model \
+--max_total_tokens 2048 \
 --tensor-parallel-size 1 \
 --mem-fraction-static 0.90 \
 --api-key sk-123456 \
 --host 0.0.0.0 --port 8000 \
+--max_running_requests 4 \
 --tool-call-parser qwen25 \
 --reasoning-parser qwen3 \
 --context-length 2048 
