@@ -25,3 +25,5 @@ latex2sympy2_extended
 math_verify
 tensorboard
 python-dotenv
+liger-kernel
+swanlab
