@@ -55,13 +55,13 @@ uv pip install flash_attn-2.8.1+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_6
 
 ### 1.2 数据集下载
 
-
+google drive
 
 ### 1.3 预训练权重
 
 ```
 modelscope download --model Qwen/Qwen3-Embedding-0.6B  --local_dir ./pretrain_models/embedding/Qwen3-Embedding-0.6B
-
+modelscope download --model Qwen/Qwen3-0.6B  --local_dir ./pretrain_models/generator/Qwen3-0.6B #测试
 modelscope download --model Qwen/Qwen3-8B  --local_dir ./pretrain_models/generator/Qwen3-8B
 ```
 
@@ -242,11 +242,15 @@ swift sft \
 
 #### LoRA合并
 
+```shell
+python src/embedding/train/merge_lora.py
+```
+
 
 
 ### 3.3 训练评估
 
-#### 评估指标
+#### 3.3.1 评估指标
 
 基于retrieval系统进行检测，
 
@@ -256,7 +260,7 @@ swift sft \
 
 
 
-#### 评估代码
+#### 3.3.2 评估代码
 
 主要是基于`src/embedding/eval/retrieval_eval.py`完成
 
@@ -270,9 +274,9 @@ bash src/embedding/eval/retrieval_eval.sh
 
 其实这里使用Milvus或者是Elastic Search能够加速非常多（3-5倍，并且更好的检索效果），但是考虑到大多数用户没有sudo权限，所以这里使用Faiss作为向量数据库。同时Milvus数据库搭建也有相应代码，感兴趣的同学可以尝试。
 
-### 稠密检索
+### 4.1 稠密检索
 
-#### Embedding生成
+#### 4.1.1 Embedding生成
 
 通过bf16、torchrun分布式计算等方式进行加速生成，封装shell脚本如下
 
@@ -306,7 +310,7 @@ def compute_embeddings(model, batch_dict, device, fp16=True):
     return embeddings
 ```
 
-#### 索引生成
+#### 4.1.2 索引生成
 
 ```
 # 读取文本数据
@@ -320,23 +324,28 @@ index_path = "./datasets/database/bm25" #BM25 index
 python search_engine/faiss/index_builder.py
 ```
 
-### 稀疏检索
+### 4.2 稀疏检索
 
 这里使用的是BM25算法，分词器使用的是jieba，但是企业级别的BM25算法一般会使用专业垂域语料库进行分词，同时还会在计算BM25 Score的时候对这些专业词汇进行加权，从而能够避免专业词汇在稠密检索过程中会出现被语义忽视。
 
+#### 4.2.1 改进
+
+1. 饱和词频
+   对于饱和词频会限制，当某个词在文档中出现次数超过10次之后会（我们当时是改成了5）停止增加该词的词频，避免关键词堆砌导致出错
+
+2. 专有名词加权
+   另外一个创新是结合google的报告中，对于专有名词，金融领域的词表进行加权(赋权是1.2)。（计算时间，是否改源代码，**BM25算法也需要调参**）
+
+3. 保留数字
+   而且，对于金融当中存在一些股票基金代码，所以这种文档的数字也需要计算词频：
+
+   ```json
+   {"股票代码":"002851","交易日期":"20190125","一级行业名称":"电力设备"}
+   ```
 
 
-可以进行的创新：
 
-主要是对于饱和词频会限制，当某个词在文档中出现次数超过10次之后会（我们当时是改成了5）停止增加该词的词频，避免关键词堆砌导致出错。另外一个创新是结合google的报告中，对于专有名词，金融领域的词表进行加权(赋权是1.2)。（计算时间，是否改源代码，**BM25算法也需要调参**）
-
-
-
-而且，对于金融当中存在一些股票基金代码，所以这种文档的数字也需要计算词频：
-
-```json
-{"股票代码":"002851","交易日期":"20190125","一级行业名称":"电力设备"}
-```
+#### 4.2.2 环境
 
 使用pyserini进行加速搜索，但是需要安装java环境javac
 
@@ -365,11 +374,11 @@ source ~/.bashrc
 
 
 
-### 混合检索
+### 4.3 混合检索
 
+倒排名算法，之后会优化
 
-
-### 部署
+### 4.4 部署
 
 - 其中$\alpha$是混合检索的权重，这里面可以越大，越偏向于BM25检索
 - retrieval_method决定使用哪一种检索方式
@@ -394,11 +403,11 @@ source ~/.bashrc
 
 # 生成系统
 
-## SFT
+## 1. SFT
 
-### 数据集
+### 1.1 数据集
 
-#### 开源数据集
+#### 1.1.1 开源数据集
 
 这里我们使用蚂蚁7月份开源的金融数据来做RL训练数据集。因为：
 
@@ -426,7 +435,7 @@ export PYTHONPATH="$PWD:$PYTHONPATH"
 sh custom/run_qwen_05_sp2_liger.sh
 ```
 
-#### 训练参数
+#### 1.1.2 训练参数
 
 config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
 
@@ -461,18 +470,331 @@ config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
 
 
 
+#### 1.1.3 蒸馏数据集
 
-
-#### 蒸馏数据集
-
-同时也需要包含自己业务场景下的常见问题，例如：
-
-- 利率是1.2，接两个月需要多少钱，如果还款迟了一个月，需要多交多少钱
+在自己业务场景下蒸馏CoT数据集，需要去看不同模型的思维链过程的包装方式。
 
 
 
-## RL
+## 2. 过程-结果多阶段奖励
 
-过程-结果多阶段奖励
+### 2.1 数据处理
 
-工具调用奖励
+运行代码：
+
+```shell
+export HF_ENDPOINT=https://hf-mirror.com
+python ./verl/custom/reward_model/data_process-prm-reward.py --local_save_dir ../datasets/gsm_prm_reward_test/
+```
+
+#### 2.1.1 数据集处理
+
+verl自带的数据集格式：
+
+```python
+instruction_following = """Solve the following question step by step (no more than 5 steps).  You must wrap your thinking with <think>Step1: ...\nStep2: ...\n</think>,  write the final answer between <answer> and </answer>,  and put the final result inside <|box_start|>result<|box_end|>."""
+
+    # add a row to each data item that represents a unique id
+    def make_map_fn(split):
+        def process_fn(example, idx):
+            question_raw = example.pop("question")
+
+            question = question_raw + " " + instruction_following
+
+            answer_raw = example.pop("answer")
+            solution = extract_solution(answer_raw)
+            data = {
+                "data_source": "prm_reward",
+                "prompt": [
+                    {
+                        "role": "user",
+                        "content": question,
+                    }
+                ],
+                "ability": "math",
+                "reward_model": {"style": "rule", "ground_truth": solution},
+                "extra_info": {
+                    "split": split,
+                    "index": idx,
+                    "answer": answer_raw,
+                    "question": question_raw,
+                },
+            }
+            return data
+
+        return process_fn
+```
+
+#### 2.1.2 必要修改
+
+- instruction
+  在这里我们需要进行指令，需要让LLM逐步思考（有明确的关键字眼），这样在RM对于中间过程容易判断思维是否一致，**这里具体的特殊字符的格式需要去看你下载模型的tokenizer_config.json文件**：
+
+  以Qwen3为例，使用的是`<think></think>`以及`<|box_start|><|box_end|>`
+
+```tex
+instruction_following="""Solve the following question step by step (no more than 5 steps).  You must wrap your thinking with <think>Step1: ...\nStep2: ...\n</think>,  write the final answer between <answer> and </answer>,  and put the final result inside <|box_start|>result<|box_end|>."""
+```
+
+- data source
+  这里处理之后的数据格式中"data_source": data_source会决定了reward使用什么奖励函数的脚本，所以需要定义我们自己的data_source，并且在进行utils/reward中进行单独的修改。
+
+  
+
+### 2.2 Reward Model
+
+#### 2.2.1 模型选择
+
+这里使用**FinR1**作为中间过程奖励模型，由上海财经大学训练的金融专业领域模型，具体指标如下：
+
+| Model                         | Parameters | FinQA    | ConvFinQA | Ant_Finance | TFNS     | Finance-Instruct-500k | Average  |
+| ----------------------------- | ---------- | -------- | --------- | ----------- | -------- | --------------------- | -------- |
+| DeepSeek-R1                   | 671B       | 71.0     | 82.0      | **90.0**    | 78.0     | **70.0**              | **78.2** |
+| **Fin-R1**                    | 7B         | **76.0** | **85.0**  | 81.0        | 71.0     | 62.9                  | 75.2     |
+| Qwen-2.5-32B-Instruct         | 32B        | 72.0     | 78.0      | 84.0        | 77.0     | 58.0                  | 73.8     |
+| DeepSeek-R1-Distill-Qwen-32B  | 32B        | 70.0     | 72.0      | 87.0        | **79.0** | 54.0                  | 72.4     |
+| **Fin-R1-SFT**                | 7B         | 73.0     | 81.0      | 76.0        | 68.0     | 61.0                  | 71.9     |
+| Qwen-2.5-14B-Instruct         | 14B        | 68.0     | 77.0      | 84.0        | 72.0     | 56.0                  | 71.4     |
+| DeepSeek-R1-Distill-Llama-70B | 70B        | 68.0     | 74.0      | 84.0        | 62.0     | 56.0                  | 69.2     |
+| DeepSeek-R1-Distill-Qwen-14B  | 14B        | 62.0     | 73.0      | 82.0        | 65.0     | 49.0                  | 66.2     |
+| Qwen-2.5-7B-Instruct          | 7B         | 60.0     | 66.0      | 85.0        | 68.0     | 49.0                  | 65.6     |
+| DeepSeek-R1-Distill-Qwen-7B   | 7B         | 55.0     | 62.0      | 71.0        | 60.0     | 42.0                  | 58.0     |
+
+```shell
+export HF_ENDPOINT=https://hf-mirror.com
+huggingface-cli download SUFE-AIFLM-Lab/Fin-R1 --local-dir ./pretrain_models/reward/Fin-R1 
+```
+
+或者使用Qwen-flash进行大模型打分。
+
+
+
+#### 2.2.2 SGLang部署
+
+部署参数参考：[服务器参数 — SGLang 框架](https://docs.sglang.com.cn/backend/server_arguments.html)
+
+运行代码：
+
+```shell
+bash verl/custom/reward_model/sglang_client.sh 
+```
+
+详细内容
+
+```
+python -m sglang.launch_server \
+--model-path ./pretrain_models/generator/Qwen3-0.6B \
+--trust-remote-code \
+--dtype bfloat16 \
+--served-model-name reward_model \
+--max-total-tokens 1024 \
+--tensor-parallel-size 1 \
+--mem-fraction-static 0.20 \
+--api-key sk-123456 \
+--host 0.0.0.0 --port 8060 \
+--max-running-requests 4 \
+--context-length 1024 
+```
+
+主要参数这里可以选择
+
+- 并发数目可以设置gpu_num\*gpu_batch_size\*roolout_num，
+- 单次请求最大文本长度为max-total-tokens设置为1024+10，使用RL训练过程中使用的max_response_length，因为输出是得分数字,正常情况仅仅占据1个token。一定要设置这个参数，否则默认使用最大文本长度，KV cache直接拉满。
+- 最好单独部署在一张卡上面
+
+
+
+#### 2.2.3 评分提示词
+
+需要让模型执行中间过程打分任务，从多个维度进行0-10分打分。
+
+```python
+f"""请作为金融领域的专家，评估以下推理过程的质量，给出 0-10 的分数。
+
+问题：{query}
+
+标准答案：
+{ground_truth}
+
+模型生成的推理过程：
+{think_content}
+
+模型生成的最终答案：
+{model_answer}
+
+评分标准（用于评估思维/推理过程的质量，而不是只看最终答案）：
+1. 推理过程的一致性：
+   - 各步骤之间是否逻辑连贯，上下文是否前后一致，没有自相矛盾。
+2. 逐步正确性：
+   - 使用的公式是否正确，数据代入是否正确，每一步计算是否存在明显算术错误。
+3. 关键要素覆盖度：
+   - 是否完整覆盖了解决该金融问题所必须的关键步骤（读取题干数据、选取合适金融公式/方法、代入计算、检查结果合理性等）。
+4. 金融业务合理性：
+   - 推理过程是否符合基本金融常识和约束（如金额符号、比例范围、时间维度、利率含义等），没有明显违背业务常识的推理。
+5. 与标准答案的一致性：
+   - 在不直接抄袭标准答案的前提下，思维过程是否能够合理推导出标准答案 {ground_truth}，或者至少朝着正确方向逐步逼近。
+
+请综合以上维度给出一个 0-10 的总评分（0 表示推理过程几乎完全错误或无关，10 表示推理过程非常清晰、严谨且能够正确推导出标准答案）。
+只输出一个数字分数（0-10），不要输出任何其他文字。"""
+```
+
+
+
+
+
+### 2.3 RL训练
+
+参数可以参考[配置说明 — verl documentation](https://woniu9524.github.io/verl-doc/examples/config.html)
+
+#### 2.3.1 verl源码修改
+
+1. reward计算脚本
+   VeRL中的奖励函数代码统一在`verl/verl/utils/reward_score`放置，并且在`verl/verl/utils/reward_score/__init__.py`代码中通过data_source来进行决定使用哪个reward脚本
+   所以需要将刚才的data_source指定一个reward代码：
+
+   ```python
+    elif data_source in ["prm_reward"]:
+           from . import prm_reward
+           res = prm_reward.compute_score(solution_str, ground_truth, extra_info,use_process_reward=True)
+   ```
+
+2. 获得更加细节的日志信息
+
+   在`verl/verl/utils/reward_score/prm_reward.py`脚本中，我们设置了compute_score函数，然后`verl/verl/utils/reward_score/__init__.py`会调用该函数对数据进行处理，计算reward，然后再返回的时候有这样的设置：
+
+   ```
+       if isinstance(res, dict):
+           return res
+       elif isinstance(res, int | float | bool):
+           return float(res)
+       else:
+           return float(res[0])
+   ```
+
+   而VeRL是采用的多成员workers的方法进行管理，reward有单独的manager，我们在`verl/verl/workers/reward_manager/naive.py`可以看到
+   ```
+         from verl.utils.reward_score import default_compute_score
+         ···
+          score = self.compute_score(
+                   data_source=data_source,
+                   solution_str=response_str,
+                   ground_truth=ground_truth,
+                   extra_info=extra_info,
+               )
+   
+               if isinstance(score, dict):
+                   reward = score["score"]
+                   # Store the information including original reward
+                   for key, value in score.items():
+                       reward_extra_info[key].append(value)
+               else:
+                   reward = score
+   ```
+
+   所以在`verl/verl/utils/reward_score/prm_reward.py`中最后返回的结果，就可以按照这种格式进行添加：
+
+   ```
+   return {
+           "score": final_score,
+           "format": weights["format"] * format_reward,
+           "answer":  weights["answer"] * answer_reward,
+           "process": weights["process"] * process_reward,
+           "weights": weights
+       }
+   ```
+
+   同时`verl/verl/workers/reward_manager/naive.py`需要修改为return_dict: bool = True：
+
+   ```python
+   def __call__(self, data: DataProto, return_dict: bool = True) -> torch.Tensor | dict[str, Any]:
+   ```
+
+   然后需要修改运行主函数`verl/verl/trainer/ppo/ray_trainer.py`，在val以及训练阶段中的return_matrix之前。具体看repo。
+   ```python
+   # 在 return metric_dict 之前加：
+   if "format" in reward_extra_infos_dict and len(reward_extra_infos_dict["format"]) > 0:
+       metric_dict["val-aux/reward_format/mean"] = float(np.mean(reward_extra_infos_dict["format"]))
+   if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
+       metric_dict["val-aux/reward_answer/mean"] = float(np.mean(reward_extra_infos_dict["answer"]))
+   if "progress" in reward_extra_infos_dict and len(reward_extra_infos_dict["progress"]) > 0:
+       metric_dict["val-aux/reward_progress/mean"] = float(np.mean(reward_extra_infos_dict["progress"]))
+       
+       # 训练阶段：把 PRM 子奖励的 batch mean 记到 metrics 里
+       if "format" in reward_extra_infos_dict and len(reward_extra_infos_dict["format"]) > 0:
+           metrics["critic/reward_format"] = float(np.mean(reward_extra_infos_dict["format"]))
+       if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
+           metrics["critic/reward_answer"] = float(np.mean(reward_extra_infos_dict["answer"]))
+       if "progress" in reward_extra_infos_dict and len(reward_extra_infos_dict["progress"]) > 0:
+           metrics["critic/reward_progress"] = float(np.mean(reward_extra_infos_dict["progress"]))
+   ```
+
+   3. 提升reward模型的吞吐量
+
+      参考[deepseek-r1复现踩坑系列2: verl的二次开发-reward模块_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1TwV1zdEHw/?spm_id_from=333.788.top_right_bar_window_history.content.click&vd_source=38c12c654dac59d97334554c2da5c1e4)
+
+   
+
+
+
+
+
+
+
+#### 2.3.2 reward 函数
+
+同时prm_reward.py的具体内容也将决定着训练结果的好坏。
+
+1. 格式奖励
+
+   对于刚才的`instruction_following`设计，需要有`<think></think>`以及`<|box_start|><|box_end|>`，同时在think中需要将思维链分成一步一步，便于Progress Reward Model判断。
+
+2. 结果奖励
+   由于金融数据集很多采用选择题作为可验证奖励，所以这里看答案是否匹配
+
+3. 过程奖励
+   从0-10，然后归一化给出得分
+
+4. 奖励分配
+
+   采用0.5+1.0+1.0总分共计2.5分进行训练，便于建立组内优势。
+
+
+
+#### 2.3.3 训练
+
+训练脚本
+
+```shell
+cd verl
+sh ./custom/run_gsm8k_prm.sh
+```
+
+#### 2.3.4 结果分析
+
+
+
+## 3. RAG工具调用
+
+原来SearchR1使用的reward计算方式使用过exact_match计算模型输出的答案是否是对的，如下：
+
+```python
+def em_check(prediction, golden_answers):
+    if isinstance(golden_answers, str):
+        golden_answers = [golden_answers]
+    normalized_prediction = normalize_answer(prediction)
+    score = 0
+    for golden_answer in golden_answers:
+        golden_answer = normalize_answer(golden_answer)
+        if golden_answer == normalized_prediction:
+            score = 1
+            break
+    return score
+```
+
+但是显然这是具有局限性的，对于wiki这种rag数据集虽然有固定的答案，例如人名、地理、金额等等可以进行em的答案，不过对于金融法律等等其他领域这种计算reward方法并不适合，所以我们使用基于语义理解的判定方法进行修正。在`verl/verl/utils/reward_score/search_r1_semantic_match.py`可以看到。
+
+后续的处理主要是加入retrieval系统进行RAG测试集测试。
+
+```
+```
+
