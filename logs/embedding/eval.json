@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2025-11-28 19:18:37",
+    "parameters": {
+      "test_file": "datasets/embedding/retrieval_test_QA.jsonl",
+      "retrieval_type": "dense",
+      "hybrid_alpha": 0.5,
+      "server_url": "http://localhost:8080",
+      "topk": 10
+    },
+    "metrics": {
+      "total_queries": 10056,
+      "Top3@accuracy": 0.0,
+      "Top5@accuracy": 0.0,
+      "MRR": 0.0,
+      "top3_hits": 0,
+      "top5_hits": 0
+    }
+  },
+  {
+    "timestamp": "2025-11-28 19:46:40",
+    "parameters": {
+      "test_file": "datasets/embedding/retrieval_test_QA.jsonl",
+      "retrieval_type": "dense",
+      "hybrid_alpha": 0.5,
+      "server_url": "http://localhost:8080",
+      "topk": 10
+    },
+    "metrics": {
+      "total_queries": 10056,
+      "Top3@accuracy": 0.5903937947494033,
+      "Top5@accuracy": 0.6327565632458234,
+      "MRR": 0.5468786304630574,
+      "top3_hits": 5937,
+      "top5_hits": 6363
+    }
+  }
+]
