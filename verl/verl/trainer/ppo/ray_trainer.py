@@ -665,6 +665,14 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+        
+        # 在 return metric_dict 之前加：
+        if "format" in reward_extra_infos_dict and len(reward_extra_infos_dict["format"]) > 0:
+            metric_dict["val-aux/reward_format/mean"] = float(np.mean(reward_extra_infos_dict["format"]))
+        if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
+            metric_dict["val-aux/reward_answer/mean"] = float(np.mean(reward_extra_infos_dict["answer"]))
+        if "process" in reward_extra_infos_dict and len(reward_extra_infos_dict["process"]) > 0:
+            metric_dict["val-aux/reward_process/mean"] = float(np.mean(reward_extra_infos_dict["process"]))
 
         return metric_dict
 
@@ -1170,6 +1178,14 @@ class RayPPOTrainer:
 
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+
+                            # 训练阶段：把 PRM 子奖励的 batch mean 记到 metrics 里
+                            if "format" in reward_extra_infos_dict and len(reward_extra_infos_dict["format"]) > 0:
+                                metrics["train/reward_format"] = float(np.mean(reward_extra_infos_dict["format"]))
+                            if "answer" in reward_extra_infos_dict and len(reward_extra_infos_dict["answer"]) > 0:
+                                metrics["train/reward_answer"] = float(np.mean(reward_extra_infos_dict["answer"]))
+                            if "process" in reward_extra_infos_dict and len(reward_extra_infos_dict["process"]) > 0:
+                                metrics["train/reward_process"] = float(np.mean(reward_extra_infos_dict["process"]))
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
