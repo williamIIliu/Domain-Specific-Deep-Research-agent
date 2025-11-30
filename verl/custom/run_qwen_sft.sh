@@ -20,7 +20,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=6 \
     data.train_batch_size=36 \
     data.micro_batch_size_per_gpu=4 \
     model.partial_pretrain=${MODEL_PATH}\
-    model.use_liger=True \
+    model.use_liger=False \
     model.enable_gradient_checkpointing=True \
     model.lora_rank=0  \
     model.lora_alpha=64  \
@@ -38,6 +38,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=6 \
     trainer.resume_mode=disable \
     trainer.resume_from_path=${SAVE_PATH} \
     optim.lr=1e-4 \
-    ulysses_sequence_parallel_size=2 \
-    use_remove_padding=true \
+    ulysses_sequence_parallel_size=1 \
+    use_remove_padding=false \
     trainer.logger='["swanlab"]' 
