@@ -407,87 +407,18 @@ def compute_score(
         weights["answer"] * answer_reward +
         weights["process"] * process_reward
     )
-    
-    return final_score
-
-
-def compute_score_with_details(
-    solution_str: str,
-    ground_truth: str,
-    extra_info: Dict = None,
-    weights: Dict[str, float] = None,
-    use_process_reward: bool = False,
-) -> Tuple[float, Dict]:
-    """
-    计算综合奖励分数，并返回详细信息
-    
-    Args:
-        solution_str: 模型输出的完整响应
-        ground_truth: 标准答案
-        extra_info: 额外信息字典，包含 "query" 键用于过程奖励
-        weights: 各奖励权重
-        use_process_reward: 是否使用过程奖励
-    
-    Returns:
-        (score, details): 综合分数和各项详细信息
-    """
-    if weights is None:
-        weights = DEFAULT_WEIGHTS.copy()
-    else:
-        weights = weights.copy()
-    
-    # 从 extra_info 中获取 query 和 ground_truth
-    query = ""
-    ground_truth_raw = ground_truth
-    if extra_info and isinstance(extra_info, dict):
-        query = extra_info.get("question", "")
-        ground_truth_raw = extra_info.get("answer", ground_truth)
-    
-    # 1. 格式奖励
-    format_reward, format_details = compute_format_reward(solution_str)
-    
-    # 2. 答案奖励
-    answer_reward, answer_details = compute_answer_reward(solution_str, ground_truth)
-    
-    # 3. 过程奖励
-    if use_process_reward and query:
-        # 提取模型的最终答案
-        model_answer = answer_details.get("extracted_answer", "")
-        if not model_answer:
-             model_answer = extract_answer(solution_str) or ""
-
-        process_reward, process_details = compute_process_reward(
-            query=query, 
-            response=solution_str,
-            model_answer=model_answer,
-            ground_truth=ground_truth_raw
-        )
-    else:
-        process_reward = 0.0
-        process_details = {"skipped": True}
-        weights["process"] = 0.0
-        total = weights["format"] + weights["answer"]
-        if total > 0:
-            weights["format"] /= total
-            weights["answer"] /= total
-    
-    # 加权求和
-    final_score = (
-        weights["format"] * format_reward +
-        weights["answer"] * answer_reward +
-        weights["process"] * process_reward
-    )
-    
-    details = {
-        "final_score": final_score,
+    reward_extra_info = {
+        "format": format_details,
+        "answer": answer_details,
+        "process": process_details,
         "weights": weights,
-        "format": {"score": format_reward, **format_details},
-        "answer": {"score": answer_reward, **answer_details},
-        "process": {"score": process_reward, **process_details},
     }
     
-    return final_score, details
-
+    return {
+        "reward_tensor": final_score,
+        "reward_extra_info": reward_extra_info,
+    }
+    # return final_score
 
 # ============================================================
 # 测试
