@@ -102,10 +102,10 @@ def default_compute_score(
         from . import search_r1_like_qa_em
 
         res = search_r1_like_qa_em.compute_score(solution_str, ground_truth)
-    elif data_source in ["dual_reward"]:
-        from . import gsm8k
+    elif data_source in ["prm_reward"]:
+        from . import prm_reward
 
-        res = gsm8k.compute_score(solution_str, ground_truth)
+        res = prm_reward.compute_score(solution_str, ground_truth, extra_info,use_process_reward=True)
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
 
