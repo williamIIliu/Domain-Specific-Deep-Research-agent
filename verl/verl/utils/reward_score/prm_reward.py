@@ -407,16 +407,13 @@ def compute_score(
         weights["answer"] * answer_reward +
         weights["process"] * process_reward
     )
-    reward_extra_info = {
-        "format": format_details,
-        "answer": answer_details,
-        "process": process_details,
-        "weights": weights,
-    }
     
     return {
-        "reward_tensor": final_score,
-        "reward_extra_info": reward_extra_info,
+        "score": final_score,
+        "format": weights["format"] * format_reward,
+        "answer":  weights["answer"] * answer_reward,
+        "process": weights["process"] * process_reward,
+        "weights": weights
     }
     # return final_score
 
