@@ -11,6 +11,4 @@ python -m sglang.launch_server \
 --api-key sk-123456 \
 --host 0.0.0.0 --port 8060 \
 --max-running-requests 4 \
---tool-call-parser qwen25 \
---reasoning-parser qwen3 \
 --context-length 1024 

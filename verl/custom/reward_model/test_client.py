@@ -7,7 +7,7 @@ import requests
 import json
 
 # 服务配置
-BASE_URL = "http://0.0.0.0:8000"
+BASE_URL = "http://0.0.0.0:8060"
 API_KEY = "sk-123456"
 MODEL_NAME = "reward_model"
 
