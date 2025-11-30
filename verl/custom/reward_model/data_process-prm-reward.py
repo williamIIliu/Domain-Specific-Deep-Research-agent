@@ -44,7 +44,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     local_dataset_path = args.local_dataset_path
 
-    data_source = "openai/gsm8k"
+    data_source = "prm_reward"
 
     if local_dataset_path is not None:
         dataset = datasets.load_dataset(local_dataset_path, "main")
