@@ -1,7 +1,7 @@
 # config文件在verl/verl/trainer/config/sft_trainer.yaml
 
 set -x
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6
+export CUDA_VISIBLE_DEVICES=1,2,3,4,5,6
 
 PROJECT_NAME="BDI"
 EXPERIMENT_NAME="Qwen3-8B-SFT-Agentar100K"
