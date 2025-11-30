@@ -15,10 +15,10 @@ torchrun --standalone --nnodes=1 --nproc_per_node=6 \
     data.val_files=${DATA_PATH}/test.parquet \
     data.prompt_key=question \
     data.response_key=answer \
-    data.max_length=2048 \
-    data.truncation=right \
-    data.train_batch_size=24 \
-    data.micro_batch_size_per_gpu=4 \
+    data.max_length=1500 \
+    data.truncation=left \
+    data.train_batch_size=12 \
+    data.micro_batch_size_per_gpu=2 \
     model.partial_pretrain=${MODEL_PATH}\
     model.use_liger=False \
     model.enable_gradient_checkpointing=True \
