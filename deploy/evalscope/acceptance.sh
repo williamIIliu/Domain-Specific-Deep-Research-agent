@@ -14,6 +14,6 @@ evalscope perf \
   --min-prompt-length 50 \
   --max-prompt-length 1024 \
   --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
-  --extra-args '{"ignore_eos": true}' \
+  --debug \
   --visualizer swanlab \
   --outputs-dir output/evalscope/Qwen3-8B-Q4_K_M/
