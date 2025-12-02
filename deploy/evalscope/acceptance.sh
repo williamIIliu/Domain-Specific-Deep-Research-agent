@@ -8,7 +8,7 @@ evalscope perf \
   --model Fin-Search \
   --url http://127.0.0.1:11434/v1/chat/completions \
   --api openai \
-  --dataset openqa \
+  --dataset random \
   --max-tokens 1024 \
   --prefix-length 0 \
   --max-prompt-length 1024 \
