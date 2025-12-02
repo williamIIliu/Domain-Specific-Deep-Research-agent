@@ -1,5 +1,5 @@
-export EVALSCOPE_PERF_SKIP_DB=1
-evalscope perf \
+export EVALSCOPE_PERF_SKIP_DB=1 \ 
+&& evalscope perf \
   --parallel 1 10 50 100 200 \
   --number 10 20 100 200 400 \
   --model Fin-Search \
@@ -12,4 +12,4 @@ evalscope perf \
   --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
   --extra-args '{"ignore_eos": true}' \
   --visualizer swanlab \
-  --outputs-dir output/evalscope/Qwen3-8B-_Q4_K_M/
+  --outputs-dir output/evalscope/Qwen3-8B-Q4_K_M/
