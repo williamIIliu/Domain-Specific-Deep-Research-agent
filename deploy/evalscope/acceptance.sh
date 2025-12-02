@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 export EVALSCOPE_PERF_SKIP_DB=1
-export CUDA_VISIBLE_DEVICES=0, 1
+export CUDA_VISIBLE_DEVICES=0,1
 
 evalscope perf \
   --parallel 1 10 50 100 200 \
