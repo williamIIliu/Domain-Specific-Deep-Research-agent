@@ -14,4 +14,5 @@ evalscope perf \
   --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
   --debug \
   --visualizer swanlab \
-  --outputs-dir output/evalscope/Qwen3-8B-Q4_K_M/ 
+  --outputs-dir /tmp/evalscope/Qwen3-8B-Q4_K_M/ \
+  --db-commit-interval 5000 
