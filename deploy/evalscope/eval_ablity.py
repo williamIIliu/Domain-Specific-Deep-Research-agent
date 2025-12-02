@@ -6,7 +6,7 @@ def run_eval():
     # task_cfg = task_cfg_dict
 
     # 选项 2: yaml 配置文件
-    task_cfg = 'eval_ablity.yaml'
+    task_cfg = './deploy/evalscope/eval_ablity.yaml'
 
     # 选项 3: json 配置文件
     # task_cfg = 'eval_openai_api.json'
