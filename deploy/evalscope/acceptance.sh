@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-export EVALSCOPE_PERF_SKIP_DB=1
-mkdir -p $HOME/tmp_evalscope
-export EVALSCOPE_PERF_DB=$HOME/tmp_evalscope/final.db
 
 evalscope perf \
   --parallel 1 10 50 100 200 \
@@ -18,4 +15,4 @@ evalscope perf \
   --debug \
   --visualizer swanlab \
   --outputs-dir output/evalscope/Qwen3-8B-Q4_K_M/ \
-  -db-commit-interval 10000 \
+  --skip-db \ 
