@@ -1,3 +1,4 @@
+export EVALSCOPE_PERF_SKIP_DB=1
 evalscope perf \
   --parallel 1 10 50 100 200 \
   --number 10 20 100 200 400 \
