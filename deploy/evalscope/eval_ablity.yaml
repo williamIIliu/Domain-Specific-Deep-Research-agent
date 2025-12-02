@@ -7,5 +7,5 @@ eval_config:
     - gsm8k
   models:
     - openai_api_base: http://127.0.0.1:11434/v1/chat/completions
-      path: Fin-Research                                
+      path: Fin-Search                                
       temperature: 0.0
