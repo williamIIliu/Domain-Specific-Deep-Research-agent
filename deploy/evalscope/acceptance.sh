@@ -11,6 +11,7 @@ evalscope perf \
   --dataset random \
   --max-tokens 1024 \
   --prefix-length 0 \
+  --min-prompt-length 50 \
   --max-prompt-length 1024 \
   --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
   --extra-args '{"ignore_eos": true}' \
