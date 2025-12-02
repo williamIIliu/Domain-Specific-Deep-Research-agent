@@ -108,7 +108,7 @@ else:
 
         # 插入逻辑
         # 假设标准缩进是 4 个空格
-        patch_logic = "\n    if os.environ.get('EVALSCOPE_PERF_SKIP_DB', '0') == '1':\n        return {}, {}"
+        patch_logic = "\n    if os.environ.get('EVALSCOPE_PERF_SKIP_DB', '0') == '1':\n        return {}, {}\n"
         
         new_db_content = db_content[:end_idx] + patch_logic + db_content[end_idx:]
         
