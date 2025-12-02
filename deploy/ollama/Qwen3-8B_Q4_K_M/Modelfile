@@ -1,4 +1,4 @@
-FROM /mypool/lzq/LLM/Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_Q4_K_M.gguf
+FROM /mypool/lzq/LLM/Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_Q4_K_M/Qwen3_8B_Q4_K_M.gguf
 
 # set the temperature to 0.7
 PARAMETER temperature 0.7
