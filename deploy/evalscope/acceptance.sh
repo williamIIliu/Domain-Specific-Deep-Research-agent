@@ -6,9 +6,7 @@ evalscope perf \
   --api openai \
   --dataset openqa \
   --max-tokens 1024 \
-  --min-tokens 1024 \
   --prefix-length 0 \
-  --min-prompt-length 1024 \
   --max-prompt-length 1024 \
   --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
   --extra-args '{"ignore_eos": true}' \
