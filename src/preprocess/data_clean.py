@@ -1,8 +1,10 @@
 import argparse
+import hashlib
 import json
 import os
 import re
-from typing import Dict, Iterable, List, Union, Set
+from collections import Counter
+from typing import Dict, Iterable, List, Set, Tuple, Union
 
 from tqdm import tqdm
 
@@ -34,55 +36,174 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
 
 
-def is_too_similar_text(a: str, b: str,
-                        word_threshold: float = 0.9,
-                        bigram_threshold: float = 0.7) -> bool:
-    """用于去重的全局近似相似度：
+def extract_body_for_dedup(text: str) -> str:
+    """提取正文用于去重，去除标题行（通常是第一行，包含分局名称等）。
+    
+    这样可以让同一份文件在不同分局网站的副本被识别为重复。
+    """
+    if not text:
+        return ""
+    # 按换行或中文句号分割，跳过第一段（通常是标题）
+    # 先尝试按换行分割
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    if len(lines) > 1:
+        # 跳过第一行（标题行）
+        return ' '.join(lines[1:])
+    # 如果没有换行，尝试按第一个句号分割
+    parts = text.split('。', 1)
+    if len(parts) > 1:
+        return parts[1].strip()
+    return text
 
-    - 词级 Jaccard ≥ word_threshold 视为重复；
-    - 或 bigram Jaccard ≥ bigram_threshold 视为重复。"""
+
+def get_char_ngrams(text: str, n: int = 3) -> Set[str]:
+    """提取字符级 n-gram 集合（适合中文）。"""
+    text = re.sub(r'\s+', '', text)  # 去除空白
+    if len(text) < n:
+        return {text} if text else set()
+    return {text[i:i+n] for i in range(len(text) - n + 1)}
+
+
+def get_char_ngram_counter(text: str, n: int = 3) -> Counter:
+    """提取字符级 n-gram 计数器（用于加权相似度）。"""
+    text = re.sub(r'\s+', '', text)
+    if len(text) < n:
+        return Counter([text]) if text else Counter()
+    return Counter(text[i:i+n] for i in range(len(text) - n + 1))
+
+
+def jaccard_similarity(set_a: Set[str], set_b: Set[str]) -> float:
+    """计算 Jaccard 相似度。"""
+    if not set_a or not set_b:
+        return 0.0
+    inter = len(set_a & set_b)
+    union = len(set_a | set_b)
+    return inter / union if union > 0 else 0.0
+
+
+def containment_similarity(set_a: Set[str], set_b: Set[str]) -> float:
+    """计算包含度相似度：交集占较小集合的比例。
+    
+    用于检测一个文本是否是另一个的子集/超集。
+    """
+    if not set_a or not set_b:
+        return 0.0
+    inter = len(set_a & set_b)
+    min_size = min(len(set_a), len(set_b))
+    return inter / min_size if min_size > 0 else 0.0
+
+
+def is_too_similar_text(a: str, b: str,
+                        jaccard_threshold: float = 0.6,
+                        containment_threshold: float = 0.85,
+                        ngram_size: int = 3) -> bool:
+    """基于字符级 n-gram 的中文文本相似度检测。
+
+    使用两种策略：
+    - Jaccard 相似度 ≥ jaccard_threshold 视为重复
+    - 包含度相似度 ≥ containment_threshold 视为重复（处理子集/超集关系）
+    """
     if not a or not b:
         return False
-
-    tokens_a_list = str(a).split()
-    tokens_b_list = str(b).split()
-    if not tokens_a_list or not tokens_b_list:
-        return False
-
-    tokens_a = set(tokens_a_list)
-    tokens_b = set(tokens_b_list)
-
-    inter = len(tokens_a & tokens_b)
-    union = len(tokens_a | tokens_b)
-    word_j = inter / union if union > 0 else 0.0
-    if word_j >= word_threshold:
+    
+    # 长度差异过大时快速跳过
+    len_a, len_b = len(a), len(b)
+    if len_a > 0 and len_b > 0:
+        ratio = min(len_a, len_b) / max(len_a, len_b)
+        if ratio < 0.3:  # 长度差异超过 3 倍，不太可能是重复
+            return False
+    
+    ngrams_a = get_char_ngrams(a, ngram_size)
+    ngrams_b = get_char_ngrams(b, ngram_size)
+    
+    # Jaccard 相似度
+    jacc = jaccard_similarity(ngrams_a, ngrams_b)
+    if jacc >= jaccard_threshold:
         return True
-
-    def build_bigrams(tokens):
-        return {f"{tokens[i]}|||{tokens[i+1]}" for i in range(len(tokens) - 1)}
-
-    bigrams_a = build_bigrams(tokens_a_list)
-    bigrams_b = build_bigrams(tokens_b_list)
-    if not bigrams_a or not bigrams_b:
-        return False
-    inter_bg = len(bigrams_a & bigrams_b)
-    union_bg = len(bigrams_a | bigrams_b)
-    bigram_j = inter_bg / union_bg if union_bg > 0 else 0.0
-    return bigram_j >= bigram_threshold
+    
+    # 包含度相似度（检测子集关系）
+    cont = containment_similarity(ngrams_a, ngrams_b)
+    if cont >= containment_threshold:
+        return True
+    
+    return False
 
 
-def make_bucket_key(norm_text: str, max_tokens: int = 20) -> str:
-    """为近似去重构造一个粗粒度 bucket key。
+def make_bucket_key(norm_text: str, ngram_size: int = 5, top_k: int = 10) -> str:
+    """为近似去重构造一个粗粒度 bucket key（基于高频 n-gram）。
 
-    - 按空白切分 token；
-    - 去重后排序，截断到前 max_tokens 个；
-    - 连接成一个字符串作为桶键。
-    具有相似词袋的文本会落在相同桶中，从而只在桶内做精细相似度比较。"""
-    tokens = norm_text.split()
-    if not tokens:
+    - 提取字符级 n-gram 并统计频率
+    - 取频率最高的 top_k 个 n-gram
+    - 排序后连接成桶键
+    
+    具有相似高频 n-gram 的文本会落在相同桶中。
+    """
+    text = re.sub(r'\s+', '', norm_text)
+    if len(text) < ngram_size:
+        return text if text else ""
+    
+    ngram_counter = get_char_ngram_counter(text, ngram_size)
+    # 取频率最高的 top_k 个
+    top_ngrams = [ng for ng, _ in ngram_counter.most_common(top_k)]
+    if not top_ngrams:
         return ""
-    uniq_sorted = sorted(set(tokens))[:max_tokens]
-    return " ".join(uniq_sorted)
+    return "|".join(sorted(top_ngrams))
+
+
+def compute_content_hash(text: str) -> str:
+    """计算内容的哈希指纹，用于快速精确去重。
+    
+    对正文部分（去除标题）计算哈希，这样同一份文件在不同分局的副本会有相同哈希。
+    """
+    body = extract_body_for_dedup(text)
+    norm = normalize_text(body)
+    # 只取正文的核心部分（前500字符）计算哈希，避免尾部差异
+    core = norm[:500] if len(norm) > 500 else norm
+    return hashlib.md5(core.encode('utf-8')).hexdigest()
+
+
+def compute_simhash(text: str, ngram_size: int = 3, hash_bits: int = 64) -> int:
+    """计算 SimHash 指纹，用于快速近似去重。
+    
+    SimHash 是局部敏感哈希，相似文本的 SimHash 值汉明距离较小。
+    """
+    text = re.sub(r'\s+', '', text)
+    if not text:
+        return 0
+    
+    ngrams = get_char_ngram_counter(text, ngram_size)
+    if not ngrams:
+        return 0
+    
+    # 初始化 hash_bits 维向量
+    v = [0] * hash_bits
+    
+    for ngram, weight in ngrams.items():
+        # 对每个 n-gram 计算哈希
+        h = int(hashlib.md5(ngram.encode('utf-8')).hexdigest(), 16)
+        for i in range(hash_bits):
+            if h & (1 << i):
+                v[i] += weight
+            else:
+                v[i] -= weight
+    
+    # 生成最终指纹
+    fingerprint = 0
+    for i in range(hash_bits):
+        if v[i] > 0:
+            fingerprint |= (1 << i)
+    
+    return fingerprint
+
+
+def hamming_distance(h1: int, h2: int) -> int:
+    """计算两个整数的汉明距离。"""
+    return bin(h1 ^ h2).count('1')
+
+
+def is_simhash_similar(h1: int, h2: int, threshold: int = 10) -> bool:
+    """判断两个 SimHash 是否相似（汉明距离 ≤ threshold）。"""
+    return hamming_distance(h1, h2) <= threshold
 
 
 FOOTER_PATTERNS = [
@@ -257,58 +378,116 @@ def clean_record(record: Dict) -> List[Dict]:
     if not text or len(text) < 50 or chinese_ratio(text) < 0.1:
         return []
 
-    chunks = split_into_chunks(text)
-    if not chunks:
-        return []
+    # 不做 chunk 切分，直接返回整条清洗后的文本
+    new_doc: Dict[str, Union[str, Dict]] = {
+        "id": rid,
+        "contents": text,
+    }
+    meta = record.get("metadata")
+    if isinstance(meta, dict):
+        new_doc["metadata"] = dict(meta)
 
-    cleaned_docs: List[Dict] = []
-    for idx, chunk in enumerate(chunks):
-        new_doc: Dict[str, Union[str, Dict]] = {
-            "id": f"{rid}#{idx+1}",
-            "contents": chunk,
-        }
-        meta = record.get("metadata")
-        if isinstance(meta, dict):
-            new_meta = dict(meta)
-            new_meta["source_id"] = rid
-            new_meta["chunk_index"] = idx + 1
-            new_doc["metadata"] = new_meta
-        cleaned_docs.append(new_doc)
-
-    return cleaned_docs
+    return [new_doc]
 
 
-def process_file(input_path: str, output_path: str) -> None:
+def process_file(input_path: str, output_path: str, 
+                 simhash_threshold: int = 8,
+                 jaccard_threshold: float = 0.6,
+                 containment_threshold: float = 0.85) -> None:
+    """处理文件，进行多层去重。
+    
+    去重策略（四层）：
+    1. 精确哈希去重：基于正文前500字符的 MD5
+    2. 精确文本去重：完全相同的标准化文本
+    3. SimHash 近似去重：汉明距离 ≤ simhash_threshold 视为重复
+    4. N-gram Jaccard/包含度去重：在同一 bucket 内精细比较
+    
+    Args:
+        input_path: 输入 JSONL 文件路径
+        output_path: 输出 JSONL 文件路径
+        simhash_threshold: SimHash 汉明距离阈值，越小越严格（默认 8）
+        jaccard_threshold: Jaccard 相似度阈值（默认 0.6）
+        containment_threshold: 包含度相似度阈值（默认 0.85）
+    """
     cleaned: List[Dict] = []
     seen_texts: Set[str] = set()
-    buckets: Dict[str, List[str]] = {}
+    seen_hashes: Set[str] = set()  # 基于正文哈希的快速去重
+    simhash_index: Dict[int, List[Tuple[int, str]]] = {}  # SimHash 索引：bucket -> [(simhash, text)]
+    buckets: Dict[str, List[str]] = {}  # N-gram bucket 索引
+    
+    dup_stats = {"hash": 0, "exact": 0, "simhash": 0, "ngram": 0}
 
-    for rec in tqdm(load_jsonl(input_path), desc="清洗与拆分", unit="doc"):
+    for rec in tqdm(load_jsonl(input_path), desc="清洗与去重", unit="doc"):
         docs = clean_record(rec)
         for d in docs:
             contents = d.get("contents")
-            # 仅对字符串内容做精确去重；结构化 dict 保留
+            # 仅对字符串内容做去重；结构化 dict 保留
             if isinstance(contents, str):
                 norm = normalize_text(contents)
                 if not norm:
                     continue
-                if norm in seen_texts:
+                
+                # 第一层：基于正文哈希的快速去重
+                content_hash = compute_content_hash(contents)
+                if content_hash in seen_hashes:
+                    dup_stats["hash"] += 1
                     continue
-                # 近似去重：只在相同 bucket 内比较，降低复杂度
-                bucket_key = make_bucket_key(norm)
+                
+                # 第二层：精确文本去重
+                if norm in seen_texts:
+                    dup_stats["exact"] += 1
+                    continue
+                
+                # 提取正文（去除标题）用于近似去重
+                body_norm = normalize_text(extract_body_for_dedup(contents))
+                text_for_dedup = body_norm if body_norm else norm
+                
+                # 第三层：SimHash 近似去重（O(1) 查找）
+                simhash = compute_simhash(text_for_dedup)
+                # 使用 SimHash 的高位作为 bucket key，减少比较次数
+                simhash_bucket = simhash >> 48  # 取高 16 位作为 bucket
+                is_simhash_dup = False
+                if simhash_bucket in simhash_index:
+                    for stored_hash, _ in simhash_index[simhash_bucket]:
+                        if is_simhash_similar(simhash, stored_hash, simhash_threshold):
+                            is_simhash_dup = True
+                            break
+                if is_simhash_dup:
+                    dup_stats["simhash"] += 1
+                    continue
+                
+                # 第四层：N-gram Jaccard/包含度去重（精细比较）
+                bucket_key = make_bucket_key(text_for_dedup)
                 if bucket_key:
                     bucket_list = buckets.setdefault(bucket_key, [])
                     is_dup = False
                     for kept in bucket_list:
-                        if is_too_similar_text(norm, kept):
+                        if is_too_similar_text(text_for_dedup, kept, 
+                                               jaccard_threshold, containment_threshold):
                             is_dup = True
                             break
                     if is_dup:
+                        dup_stats["ngram"] += 1
                         continue
-                    bucket_list.append(norm)
+                    bucket_list.append(text_for_dedup)
 
+                # 通过所有去重检查，保留该文档
+                seen_hashes.add(content_hash)
                 seen_texts.add(norm)
+                simhash_index.setdefault(simhash_bucket, []).append((simhash, text_for_dedup))
+                
             cleaned.append(d)
+    
+    # 输出去重统计
+    total_dup = sum(dup_stats.values())
+    print(f"\n去重统计:")
+    print(f"  - 哈希去重: {dup_stats['hash']}")
+    print(f"  - 精确去重: {dup_stats['exact']}")
+    print(f"  - SimHash 去重: {dup_stats['simhash']}")
+    print(f"  - N-gram 去重: {dup_stats['ngram']}")
+    print(f"  - 总去重数: {total_dup}")
+    print(f"  - 保留文档数: {len(cleaned)}")
+    
     save_jsonl(output_path, cleaned)
 
 
@@ -335,9 +514,9 @@ def read_jsonl(file_path: str, line_min: int = 10, line_max: int = 100) -> List[
         return [json.loads(line) for line in f]
 
 if __name__ == "__main__":
-    # main()
+    main()
 
-    res = read_jsonl("datasets/OmniEval-Corpus/all_data_clean.jsonl")
-    print(len(res))
-    print(res[10:20])
+    # res = read_jsonl("datasets/OmniEval-Corpus/all_data_clean.jsonl")
+    # print(len(res))
+    # print(res[10:20])
 
