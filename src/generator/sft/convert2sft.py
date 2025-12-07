@@ -8,7 +8,7 @@ verl SFT格式要求:
 
 Usage:
     python src/generator/sft/convert2sft.py \
-        --input_dir datasets/Agentar-DeepFinance-100K \
+        --input_file datasets/Agentar-DeepFinance-100K/Agentar_DeepFinance_sft.jsonl \
         --output_dir datasets/Agentar-DeepFinance-100K \
         --train_ratio 0.95
 """
@@ -52,42 +52,43 @@ def convert_message_to_sft_format(item: dict) -> dict:
     }
 
 
-def load_jsonl_files(input_dir: str) -> list:
+def load_jsonl_file(input_file: str) -> list:
     """
-    加载目录下所有JSONL文件。
+    加载指定的JSONL文件。
     """
     all_data = []
-    input_path = Path(input_dir)
+    input_path = Path(input_file)
     
-    jsonl_files = sorted(input_path.glob("*.jsonl"))
-    print(f"Found {len(jsonl_files)} JSONL files")
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_file}")
     
-    for jsonl_file in jsonl_files:
-        print(f"Loading {jsonl_file.name}...")
-        with open(jsonl_file, 'r', encoding='utf-8') as f:
-            for line in tqdm(f, desc=f"Reading {jsonl_file.name}"):
-                line = line.strip()
-                if line:
-                    try:
-                        item = json.loads(line)
-                        all_data.append(item)
-                    except json.JSONDecodeError as e:
-                        print(f"Error parsing line: {e}")
-                        continue
+    print(f"Loading {input_path.name}...")
+    with open(input_path, 'r', encoding='utf-8') as f:
+        for line in tqdm(f, desc=f"Reading {input_path.name}"):
+            line = line.strip()
+            if line:
+                try:
+                    item = json.loads(line)
+                    all_data.append(item)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing line: {e}")
+                    continue
     
     return all_data
 
 
 def main():
     parser = argparse.ArgumentParser(description="Convert DeepFinance JSONL to verl parquet format")
-    parser.add_argument("--input_dir", type=str, required=True, 
-                        help="Input directory containing JSONL files")
+    parser.add_argument("--input_file", type=str, required=True, 
+                        help="Input JSONL file path")
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Output directory for parquet files")
     parser.add_argument("--train_ratio", type=float, default=0.95,
                         help="Ratio of data for training (default: 0.95)")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Maximum number of samples to process (for testing)")
+    parser.add_argument("--max_length", type=int, default=None,
+                        help="Filter samples where question or answer length exceeds this value")
     
     args = parser.parse_args()
     
@@ -97,8 +98,21 @@ def main():
     
     # 加载数据
     print("Loading data...")
-    all_data = load_jsonl_files(args.input_dir)
+    all_data = load_jsonl_file(args.input_file)
     print(f"Loaded {len(all_data)} samples")
+
+    # 长度过滤
+    if args.max_length:
+        print(f"Filtering samples with length > {args.max_length}...")
+        filtered_data = []
+        for item in tqdm(all_data, desc="Filtering"):
+            sft_item = convert_message_to_sft_format(item)
+            if len(sft_item['question']) <= args.max_length and len(sft_item['answer']) <= args.max_length:
+                filtered_data.append(item)
+        
+        dropped = len(all_data) - len(filtered_data)
+        print(f"Dropped {dropped} samples due to length limit. Remaining: {len(filtered_data)}")
+        all_data = filtered_data
     
     if args.max_samples:
         all_data = all_data[:args.max_samples]
