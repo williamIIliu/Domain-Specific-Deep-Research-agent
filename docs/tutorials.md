@@ -37,6 +37,7 @@ cd verl
 uv venv .venv --python 3.12
 source .venv/bin/activate
 uv pip install -e .
+uv pip install -r ./requirements.txt
 uv pip install -r ./requirements_sglang.txt
 export PYTHONPATH="$PWD:$PYTHONPATH"
 ```
@@ -64,6 +65,52 @@ modelscope download --model Qwen/Qwen3-Embedding-0.6B  --local_dir ./pretrain_mo
 modelscope download --model Qwen/Qwen3-0.6B  --local_dir ./pretrain_models/generator/Qwen3-0.6B #测试
 modelscope download --model Qwen/Qwen3-8B  --local_dir ./pretrain_models/generator/Qwen3-8B
 ```
+
+### 1.4 数据集清洗
+
+#### 1.4.1 case:
+
+**去重**
+
+```json
+{"id": "ec470c99-b26b-4a51-9872-5501b142cecf", "contents": "node id: 5d3bff95-7ca0-40f8-bdb2-321816370f33 text: (二)公司近三年（含报告期）的普通股股利分配方案或预案、资本公积金转增股本方案或预案单位：元币种：人民币 (三)以现金方式回购股份计入现金分红的情况 □适用√不适用 (四)报告期内盈利且母公司可供普通股股东分配利润为正，但未提出普通股现金利润分配 方案预案的，公司应当详细披露原因以及未分配利润的用途和使用计划 □适用√不适用 二、承诺事项履行情况 (一)公司实际控制人、股东、关联方、收购人以及公司等承诺相关方在报告期内或持续到报告期内的承诺事项 (二)公司资产或项目存在盈利预测，且报告期仍处在盈利预测期间，公司就资产或项目 是否达到原盈利预测及其原因作出说明 □已达到□未达到√不适用 (三)业绩承诺的完成情况及其对商誉减值测试的影响 □适用√不适用 三、...", "metadata": {"source_file": "000221.pkl"}, "relevant_contents": [{"id": "dd06d209-e6a8-4f73-bb02-468baf94e794", "contents": "node id: e335dddf-cbc4-4b7f-b20a-da3e9f5c17d5 text: (二)公司近三年（含报告期）的普通股股利分配方案或预案、资本公积金转增股本方案或预案 单位：元币种：人民币 (三)以现金方式回购股份计入现金分红的情况 □适用√不适用 (四)报告期内盈利且母公司可供普通股股东分配利润为正，但未提出普通股现金利润分配 方案预案的，公司应当详细披露原因以及未分配利润的用途和使用计划□适用√不适用 二、承诺事项履行情况 (一)公司实际控制人、股东、关联方、收购人以及公司等承诺相关方在报告期内或持续到报告期内的承诺事项 (二)公司资产或项目存在盈利预测，且报告期仍处在盈利预测期间，公司就资产或项目 是否达到原盈利预测及其原因作出说明 □已达到□未达到√不适用 (三)业绩承诺的完成情况及其对商誉减值测试的影响 □适用√不适用 三、报...", "metadata": {}, "score": 0.9486966133117676, "rank": 4}]}
+```
+
+```shell
+python src/preprocess/data_clean.py \
+    --input datasets/OmniEval-Corpus/all_data_raw.jsonl \
+    --output datasets/OmniEval-Corpus/all_data_clean.jsonl
+    --jaccard_threshold 0.4 \
+    --phrase_overlap 5
+```
+
+
+
+**噪声**
+
+```json
+node id: 51d08c0c-705a-4f5e-bc21-809b183ae1f3 text: border=\"1\" ><tr> <td colspan=\"1\" rowspan=\"1\">项目</td> <td colspan=\"1\" rowspan=\"1\">2015年度</td> <td colspan=\"1\" rowspan=\"1\">2014年度</td> <td colspan=\"1\" rowspan=\"1\">2013年度</td> </tr><tr> <td colspan=\"1\" rowspan=\"1\">净利润</td> <td colspan=\"1\" rowspan=\"1\">20044.10</td> <td colspan=\"1\" rowspan=\"1\">16004.82</td> <td colspan=\"1\" rowspan=\"1\">12,6...
+
+法律声明 | 联系我们 | 设为首页 | 加入收藏 … 京ICP备… 京公网安备…
+```
+
+使用正则化去除；文字中文比例 `< 0.1` 丢弃
+
+**不良信息**
+
+```
+模拟交易:模拟炒股免费实操交易技能”、“微牛证券”、“举报本回复
+```
+
+正则化
+
+**过短文本**
+
+去掉
+
+**过长文本**
+
+切分成400-
 
 
 
@@ -197,17 +244,42 @@ python src/embedding/distill/distill_complete.py
 
 ### 3.1 数据集准备
 
-ms-swift对Qwen3 Embedding进行微淘
+ms-swift对Qwen3 Embedding进行微调，要求的数据格式如下：
 
-标准格式
+```json
+{"messages": [{"role": "user", "content": "2022年4月银行结汇和售汇的具体数据是多少？"}], "positive_messages": [[{"role": "user", "content": ""}]],
+"negative_messages": [[{"role": "user", "content": ""]]}
+```
 
 #### 样本对
 
-### 3.2 训练代码
+**通过构建三元组的数据集，基于距离或者是对比学习的方法来是模型对垂域知识有更好的理解，经过微调之后显著提升模型的细粒度语义辨识能力，同时能够对于场景的认识会更加深刻**。在之前的QA数据蒸馏中，获得了高质量的正样本Q&A，但是现在需要设置负样本以及负难样本，用来Embedding模型的对比学习训练。
 
-使用ms-swift对Embedding模型进行训练
+负样本对：
+
+从非当前文本id来找到相应数据蒸馏
+
+难负样本：
+
+使用
+
+#### 对比学习
 
 
+
+### 3.2 训练
+
+#### 3.2.1 脚本
+
+使用ms-swift对Embedding模型进行训练,
+
+```shell
+python src/embedding/train/merge_lora.py
+# LoRA合并
+python src/embedding/train/merge_lora.py
+```
+
+具体参数
 
 ```bash
 INFONCE_MASK_FAKE_NEGATIVE=true \ # 过滤掉假负样本，也就是负样本的相似度超过正样本的
@@ -240,12 +312,6 @@ swift sft \
     --deepspeed zero2 \
     --report_to swanlab \
     --swanlab_project embedding_finetune
-```
-
-#### LoRA合并
-
-```shell
-python src/embedding/train/merge_lora.py
 ```
 
 
@@ -316,7 +382,7 @@ def compute_embeddings(model, batch_dict, device, fp16=True):
 
 ```
 # 读取文本数据
-jsonl_path = "../datasets/Fin_Corpus/demo_embedding.jsonl"
+jsonl_path = "./database/data_with_embedding_shards/all_data_clean_embedding.jsonl"
 # FAISS index 生成
 save_path = "./datasets/database/faiss_qwen"  # Faiss index 
 # BM25 index 生成
@@ -401,6 +467,22 @@ source ~/.bashrc
 
 然后运行search_engine/faiss/retrieval_server_test.py
 
+## 5. RAG评估数据蒸馏
+
+#### 相关文档配置
+
+再启动检索系统之后对每条文档做相关文档的配置，会进行相似度的过滤，以及去除本条数据.
+
+这里使用了多种过滤方法
+
+```shell
+python src/generator/distill/relevant_context.py 
+```
+
+
+
+
+
 
 
 # 生成系统
@@ -420,26 +502,50 @@ source ~/.bashrc
 cd datasets
 export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download antgroup/Agentar-DeepFinance-100K --local-dir ./Agentar-DeepFinance-100K
+```
 
+#### 1.1.2 蒸馏数据集
+
+在自己业务场景下蒸馏CoT数据集，需要去看不同模型的思维链过程的包装方式。
+
+
+
+#### 1.1.3 数据集统计
+
+作为算法工程师首先需要清楚自己的数据特点，这决定了后续模型、训练参数、部署方案的选择。
+
+| 指标           | Question                                       | Answer                                                       |
+| :------------- | :--------------------------------------------- | ------------------------------------------------------------ |
+| 平均长度       | 394.14                                         | 3,651.71                                                     |
+| 最小长度       | 10                                             | 364                                                          |
+| 最大长度       | 22,845                                         | 157,661                                                      |
+| 中位数         | 120                                            | 1,950                                                        |
+| P95            | 2,297                                          | 10,809                                                       |
+| 超出阈值样本数 | `> 512`: 9,765 (9.86%) `> 1024`: 6,849 (6.91%) | `> 2048`: 46,891 (47.33%)`> 4096`: 25,245 (25.48%)`> 8192`: 10,288 (10.38%) |
+
+太长的CoT数据并不需要，而且数据集里面有很多是冗余的思考。在选择金融行业模型作为基础模型，同时对本地金融数据做思维链冷启动的训练之后即可，在企业部署则需要精简有效的思考。所以在这里我们使用答案在2048以内的数据集，但是以外的数据，之后仍会拿来做RL让模型进行边界的探索。
+
+代码：
+
+```shell
 # SFT格式数据处理
 python src/generator/sft/convert2sft.py \
---input_dir datasets/Agentar-DeepFinance-100K \
---output_dir datasets/Agentar-DeepFinance-100K \
---train_ratio 0.95
+    --input_file datasets/Agentar-DeepFinance-100K/Agentar_DeepFinance_01.jsonl \
+    --output_dir datasets/Agentar-DeepFinance-100K \
+    --max_length 2048
 ```
 
-然后使用VeRL框架训练，由FSDP加速
 
-```
-cd verl
-export PYTHONPATH="$PWD:$PYTHONPATH"
 
-sh custom/run_qwen_sft.sh
-```
+### 1.2 SFT 训练
+
+#### 1.2.1 SFT简介
+
+和pretrain的区别在于训练的概率模型不一样，pretrain的模型是根据上文写下文，而SFT则是根据一段问题思考答案。SFT使用**高质量、有标注**的数据集（通常包含 Prompt 和 Answer 对），对模型进行进一步的训练。其核心目的是让模型学会**指令遵循（Instruction Following）**，即理解用户的意图并给出符合人类预期的回复格式和内容。
 
 #### 1.1.2 训练参数
 
-config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
+初始config文件在verl/verl/trainer/config/sft_trainer.yaml
 
 **重点参数**
 
@@ -448,7 +554,7 @@ config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
    32才会有明显效果
 
 2. max_lenght
-   COT推理链条超过2048的很少，所以这里设置最大长度为2028，同时设置右截断，保证推理初始的一致性
+   2048，所以这里设置最大长度为2028，同时设置右截断，保证推理初始的一致性
 
 3. use_liger
 
@@ -472,9 +578,26 @@ config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
 
 
 
-#### 1.1.3 蒸馏数据集
+然后使用VeRL框架训练，由FSDP加速
 
-在自己业务场景下蒸馏CoT数据集，需要去看不同模型的思维链过程的包装方式。
+```
+cd verl
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
+sh custom/run_qwen_sft.sh
+```
+
+#### 1.1.2 训练参数
+
+### 1.2 SFT效果评估
+
+#### 1.2.1 Perplexity
+
+使用困惑度进行评估
+
+#### 1.2.2 题目转换
+
+选择题变成判断题，或者计算题让模型重新进行回答
 
 
 
@@ -482,14 +605,46 @@ config文件在verl/verl/trainer/config/sft_trainer.yaml可以详细去看
 
 ### 2.1 数据处理
 
-运行代码：
+#### 2.1.1 数据集下载
+
+gsm数据测试：
 
 ```shell
 export HF_ENDPOINT=https://hf-mirror.com
 python ./verl/custom/reward_model/data_process-prm-reward.py --local_save_dir ../datasets/gsm_prm_reward_test/
 ```
 
-#### 2.1.1 数据集处理
+依旧使用蚂蚁数据集，挑选出里面的选择题、数据计算以及明确答案的文本作为数据集
+
+```shell
+python -m src.generator.rl.data_process_deepfinance_rl \
+    --local_dataset_path datasets/Agentar-DeepFinance-100K/Agentar_DeepFinance_sft.jsonl \
+    --local_save_dir datasets/Agentar-DeepFinance-100K/rl/ \
+    --max_question_length 512
+```
+
+数据统计
+
+| 指标           | Question                                        |
+| :------------- | :---------------------------------------------- |
+| 平均长度       | 655.87                                          |
+| 最小长度       | 269                                             |
+| 最大长度       | 23104                                           |
+| 中位数         | 375                                             |
+| P95            | 2900                                            |
+| 超出阈值样本数 | `> 512`: 13,900 (15.11%)`> 1024`: 6,990 (7.60%) |
+
+这些超长的数据来源于
+
+1. **法律合同分析任务** (23K 字符) - 包含完整的法律合同文本
+2. **新闻文章摘要任务** (22K, 20K 字符) - 包含多篇新闻文章需要总结
+3. **财务报表分析任务**
+
+去掉，我们需要的是RL带来的推理能力
+
+
+
+#### 2.1.2 数据集处理
 
 verl自带的数据集格式：
 
@@ -527,7 +682,7 @@ instruction_following = """Solve the following question step by step (no more th
         return process_fn
 ```
 
-#### 2.1.2 必要修改
+#### 2.1.3 必要修改
 
 - instruction
   在这里我们需要进行指令，需要让LLM逐步思考（有明确的关键字眼），这样在RM对于中间过程容易判断思维是否一致，**这里具体的特殊字符的格式需要去看你下载模型的tokenizer_config.json文件**：
@@ -567,7 +722,19 @@ export HF_ENDPOINT=https://hf-mirror.com
 huggingface-cli download SUFE-AIFLM-Lab/Fin-R1 --local-dir ./pretrain_models/reward/Fin-R1 
 ```
 
-或者使用Qwen-flash进行大模型打分。
+或者使用行业大模型轩辕进行打分。
+
+```
+modelscope download --model Duxiaoman-DI/XuanYuan-6B-Chat  --local_dir ./pretrain_models/reward/XuanYuan-6B
+
+转换为GGUF格式
+python convert_hf_to_gguf.py ../Domain-Specific-Deep-Research-agent/pretrain_models/reward/XuanYuan-6B/ --outfile ../Domain-Specific-Deep-Research-agent/pretrain_models/reward/XuanYuan-6B_f16.gguf --outtype f16
+
+量化
+./build/bin/llama-quantize ../Domain-Specific-Deep-Research-agent/pretrain_models/reward/XuanYuan-6B_f16.gguf ../Domain-Specific-Deep-Research-agent/pretrain_models/reward/XuanYuan-6B_Q4_K_M.gguf Q4_K_M
+
+部署
+```
 
 
 
@@ -798,5 +965,282 @@ def em_check(prediction, golden_answers):
 后续的处理主要是加入retrieval系统进行RAG测试集测试。
 
 ```
+```
+
+
+
+# 部署与压测
+
+## 1. llama.cpp
+
+### 1.1 环境
+
+#### 1.1.1 编译
+
+```shell
+mkdir build && cd build
+
+cmake .. \
+  -G "Unix Makefiles" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLAMA_CUBLAS=OFF \
+  -DLLAMA_CURL=OFF
+  
+  # 添加到系统环境
+  export PATH="/mypool/lzq/LLM/llama.cpp-master/build/bin:$PATH"
+  source ~/.bashrc
+```
+
+#### 1.1.2 pyhton环境
+
+```shell
+uv venv .venv --python 3.10
+source .venv/bin/activate
+uv pip install -r requirements.txt --index-strategy unsafe-first-match
+export PYTHONPATH="$PWD:$PYTHONPATH"
+```
+
+### 1.2 部署
+
+#### 1.2.1 转换为GGUF格式
+
+```
+# 是否需要量化：修改--outtype参数
+python convert_hf_to_gguf.py ../Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3-8B/ --outfile ../Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_f16.gguf --outtype f16
+```
+
+#### 1.2.2 量化方案选择
+
+```
+./build/bin/llama-quantize ../Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_f16.gguf ../Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_Q4_K_M.gguf Q4_K_M
+```
+
+中间转换过程中的关键部分attn, ffn_down会使用Q6KM，
+
+outtype是输出类型，代表含义：
+
+- q2_k：特定张量（Tensor）采用较高的精度设置，而其他的则保持基础级别。
+- q3_k_l、q3_k_m、q3_k_s：这些变体在不同张量上使用不同级别的精度，从而达到性能和效率的平衡。
+- q4_0：这是最初的量化方案，使用 4 位精度。
+- Q4_1 和 Q4_K_M、Q4_K_S：这些提供了不同程度的准确性和推理速度，适合需要平衡资源使用的场景。
+- q5_0、q5_1、q5_k_m、q5_k_s：这些版本在保证更高准确度的同时，会使用更多的资源并且推理速度较慢。
+- q6_k 和 q8_0：这些提供了最高的精度，但是因为高资源消耗和慢速度，可能不适合所有用户。
+  fp16 和 f32: 不量化，保留原始精度。
+
+其中量化的具体方案不同，导致量化模型的性能也会带来巨大差异：
+
+| 代号         | 每权重位数 | 是否存最小/最大值(scale) | 是否存零点(zero) | 共享量化参数块大小            | 显存相对大小 | 质量(1→5) | 速度(1→5) | 一句话总结                                                |
+| ------------ | ---------- | ------------------------ | ---------------- | ----------------------------- | ------------ | --------- | --------- | --------------------------------------------------------- |
+| **q4\_0**    | 4 bit      | ✅                        | ❌                | 32 权重一组                   | 100 %        | ⭐⭐        | ⭐⭐⭐⭐⭐     | 最老、最小、最快，也最糙；玩具/CPU 场景够用。             |
+| **q4\_1**    | 4 bit      | ✅                        | ✅                | 32 权重一组                   | +3 %         | ⭐⭐⭐       | ⭐⭐⭐⭐      | 比 q4\_0 多存个“零点”，精度↑，体积稍大，速度几乎不变。    |
+| **q4\_k\_m** | 4 bit      | ✅                        | ✅                | 256 权重一组 + K-means 优化   | +6 %         | ⭐⭐⭐⭐      | ⭐⭐⭐       | “中庸”首选，体积/质量折中；GPU/CPU 都推荐。               |
+| **q4\_k\_s** | 4 bit      | ✅                        | ✅                | 256 权重一组 + K-means 更激进 | +2 %         | ⭐⭐        | ⭐⭐⭐⭐      | 比 q4\_k\_m 再压狠一点，体积≈ q4\_1，质量略降，速度略快。 |
+
+8B的模型转化为GGUF大小15.6G，Q4_K_M为4.78G，而Q4_0为4.54G。Q4_K_M模型量化过程中attn_v.weight, ffn_down.weight会使用Q6_K保证模型效果，而Q4_0则没有。
+
+#### 1.2.3 推理
+
+```
+llama-cli -m ../Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_Q4_K_M.gguf -p "Hello, what is the meaning of life?"
+
+```
+
+## 2. Ollama
+
+### 2.1 环境
+
+运行GGUF格式文件，GUUF文件推理时消耗更少的资源
+
+```
+#下载安装包
+wget -O ollama-linux-amd64.tgz https://ollama.com/download/ollama-linux-amd64.tgz
+tar -zxvf ollama-linux-amd64.tgz
+
+# 查看版本
+./bin/ollama -v
+
+# 环境变量
+export PATH="/mypool/lzq/LLM/ollama/bin:$PATH"
+```
+
+### 2.2 运行模型
+
+常见命令
+
+```shell
+ollama list              # 列出所有模型
+ollama pull <model-name> # 从模型仓库拉取一个模型
+ollama run <model-name>  # 运行一个模型
+ollama ps                # 列出所有正在运行的模型
+ollama rm <model-name>   # 删除一个模型
+```
+
+#### 2.2.1 运行模型
+
+1. 创建Modelfile文件
+   无拓展名，用于设置Ollama部署之后的模型名称，运行参数。主要是用于指定模型路径以及封装
+
+2. 运行模型
+
+   先写文件参数，注意这里的**FROM**指定的路径是从**Modelfile文件**所在位置进行计算的，所以最好填相对路径。
+   ```
+   FROM /mypool/lzq/LLM/Domain-Specific-Deep-Research-agent/pretrain_models/generator/Qwen3_8B_Q4_K_M.gguf
+   
+   # set the temperature to 0.7
+   PARAMETER temperature 0.7
+   PARAMETER top_p 0.8
+   PARAMETER repeat_penalty 1.05
+   TEMPLATE """{{ if .System }}<|im_start|>system
+   {{ .System }}<|im_end|>
+   {{ end }}{{ if .Prompt }}<|im_start|>user
+   {{ .Prompt }}<|im_end|>
+   {{ end }}<|im_start|>assistant
+   {{ .Response }}<|im_end|>"""
+   # set the system message
+   SYSTEM """
+   You are a helpful assistant.
+   """
+   ```
+
+   nohup无sudo安装编译实例
+
+   ```shell
+   wget https://ftp.gnu.org/gnu/coreutils/coreutils-9.4.tar.xz
+   tar -xf coreutils-9.4.tar.xz && cd coreutils-9.4
+   
+   ./configure --prefix=$HOME/local --disable-dependency-tracking
+   make -j$(nproc)
+   make install
+   
+   echo 'export PATH=$HOME/local/bin:$PATH' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+   然后运行模型
+
+   ```shell
+   # 在运行之前首先要运行server
+   nohup ollama serve &
+   # 验证是否运行
+   curl http://127.0.0.1:11434
+   # 进行部署
+   ollama create Fin-Search -f ./deploy/ollama/Qwen3-8B_Q4_K_M/Modelfile
+   ```
+
+   如果想要修改运行时的端口与命令，需要在serve之前先export
+
+   ```shell
+   export OLLAMA_HOST=0.0.0.0:11434
+   export CUDA_VISIBLE_DEVICES=0,1 
+   ollama serve
+   ```
+
+3. 调用
+
+   运行
+
+   ```shell
+   curl http://127.0.0.1:11434/api/chat -d '{"model": "Fin-Search", "messages": [{"role": "user", "content": "Hello"}]}'
+   ```
+
+   停止运行
+
+   ```shell
+   pkill -f "ollama serve"
+   # 如果nohup启动，还需要删除
+   rm -f ~/.ollama/ollama.pid
+   ```
+
+   
+
+## 3. EvalScope
+
+文档资料：[快速上手 | EvalScope](https://evalscope.readthedocs.io/zh-cn/latest/get_started/basic_usage.html)
+
+### 2.1 环境
+
+```
+uv pip install 'evalscope[all]'
+uv pip install 'evalscope[perf]' 压测
+```
+
+### 2.2 压力测试
+
+完整的参数配置信息：[参数说明 | EvalScope](https://evalscope.readthedocs.io/zh-cn/latest/user_guides/stress_test/parameters.html)
+
+```bash
+evalscope perf \
+  --parallel 1 10 50 100 200 \
+  --number 10 20 100 200 400 \
+  --model Fin-Search \
+  --url http://127.0.0.1:11434/v1/chat/completions \
+  --api openai \
+  --dataset openqa \
+  --max-tokens 1024 \
+  --prefix-length 0 \
+  --min-prompt-length 1024 \
+  --max-prompt-length 1024 \
+  --tokenizer-path ./pretrain_models/generator/Qwen3-8B/ \
+  --extra-args '{"ignore_eos": true}' 
+```
+
+测试结果：
+```txt
+Benchmarking summary:
++-----------------------------------+----------+
+| Key                               |    Value |
++===================================+==========+
+| Time taken for tests (s)          |  55.3146 |
++-----------------------------------+----------+
+| Number of concurrency             |   1      |
++-----------------------------------+----------+
+| Total requests                    |  10      |
++-----------------------------------+----------+
+| Succeed requests                  |  10      |
++-----------------------------------+----------+
+| Failed requests                   |   0      |
++-----------------------------------+----------+
+| Output token throughput (tok/s)   | 116.697  |
++-----------------------------------+----------+
+| Total token throughput (tok/s)    | 219.963  |
++-----------------------------------+----------+
+| Request throughput (req/s)        |   0.195  |
++-----------------------------------+----------+
+| Average latency (s)               |   5.5304 |
++-----------------------------------+----------+
+| Average time to first token (s)   |   0.3121 |
++-----------------------------------+----------+
+| Average time per output token (s) |   0.0087 |
++-----------------------------------+----------+
+| Average inter-token latency (s)   |   0.0087 |
++-----------------------------------+----------+
+| Average input tokens per request  | 529.7    |
++-----------------------------------+----------+
+| Average output tokens per request | 598.6    |
++-----------------------------------+----------+
+```
+
+### 2.3 能力测试
+
+主要是检测量化或者微调之后模型的通用能力是否下降
+
+```
+uv pip install evalscope[opencompass]
+```
+
+所需文件，在yaml文件中指定测试数据集的选择
+
+```
+eval_backend: OpenCompass
+eval_config:
+  datasets:
+    - mmlu
+    - ceval
+    - ARC_c
+    - gsm8k
+  models:
+    - openai_api_base: http://127.0.0.1:11434/v1/chat/completions
+      path: Fin-Research                                
+      temperature: 0.0
 ```
 
