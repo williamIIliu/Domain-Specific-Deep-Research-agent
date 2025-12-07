@@ -408,14 +408,13 @@ def compute_score(
         weights["progress"] * process_reward
     )
     
+    # 只返回数值类型的键，不返回 weights 字典，否则 metric_utils 中 np.mean() 会报错
     return {
         "score": final_score,
         "format": weights["format"] * format_reward,
-        "answer":  weights["answer"] * answer_reward,
+        "answer": weights["answer"] * answer_reward,
         "progress": weights["progress"] * process_reward,
-        "weights": weights
     }
-    # return final_score
 
 # ============================================================
 # 测试
