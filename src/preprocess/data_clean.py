@@ -93,15 +93,42 @@ def containment_similarity(set_a: Set[str], set_b: Set[str]) -> float:
     return inter / min_size if min_size > 0 else 0.0
 
 
-def is_too_similar_text(a: str, b: str,
-                        jaccard_threshold: float = 0.6,
-                        containment_threshold: float = 0.85,
-                        ngram_size: int = 3) -> bool:
-    """基于字符级 n-gram 的中文文本相似度检测。
+def get_key_phrases(text: str, phrase_len: int = 8) -> Set[str]:
+    """提取关键短语（连续字符片段），用于检测模板化内容。
+    
+    年报、政府文件等常包含固定的模板表述，通过检测这些关键短语的重叠可以识别模板化重复。
+    """
+    # 去除空白、数字和标点，保留核心文字
+    text = re.sub(r'[\s\d\.\,;:!?，。；：！？、\"\"''（）\[\]【】\n\r]', '', str(text))
+    if len(text) < phrase_len:
+        return {text} if text else set()
+    return {text[i:i+phrase_len] for i in range(len(text) - phrase_len + 1)}
 
-    使用两种策略：
-    - Jaccard 相似度 ≥ jaccard_threshold 视为重复
-    - 包含度相似度 ≥ containment_threshold 视为重复（处理子集/超集关系）
+
+def key_phrase_overlap(phrases_a: Set[str], phrases_b: Set[str], 
+                       min_overlap: int = 10) -> bool:
+    """检测两个文档是否有足够多的公共关键短语。
+    
+    用于检测模板化内容（如年报中的固定表述、政府文件模板等）。
+    """
+    if not phrases_a or not phrases_b:
+        return False
+    common = phrases_a & phrases_b
+    return len(common) >= min_overlap
+
+
+def is_too_similar_text(a: str, b: str,
+                        jaccard_threshold: float = 0.5,
+                        containment_threshold: float = 0.8,
+                        phrase_overlap_threshold: int = 10,
+                        ngram_size: int = 3,
+                        phrase_len: int = 8) -> bool:
+    """基于字符级 n-gram 和关键短语的中文文本相似度检测。
+
+    使用三种策略：
+    1. Jaccard 相似度 ≥ jaccard_threshold 视为重复
+    2. 包含度相似度 ≥ containment_threshold 视为重复（处理子集/超集关系）
+    3. 关键短语重叠 ≥ phrase_overlap_threshold 视为模板化重复
     """
     if not a or not b:
         return False
@@ -124,6 +151,12 @@ def is_too_similar_text(a: str, b: str,
     # 包含度相似度（检测子集关系）
     cont = containment_similarity(ngrams_a, ngrams_b)
     if cont >= containment_threshold:
+        return True
+    
+    # 关键短语重叠（检测模板化内容）
+    phrases_a = get_key_phrases(a, phrase_len)
+    phrases_b = get_key_phrases(b, phrase_len)
+    if key_phrase_overlap(phrases_a, phrases_b, phrase_overlap_threshold):
         return True
     
     return False
@@ -392,30 +425,35 @@ def clean_record(record: Dict) -> List[Dict]:
 
 def process_file(input_path: str, output_path: str, 
                  simhash_threshold: int = 8,
-                 jaccard_threshold: float = 0.6,
-                 containment_threshold: float = 0.85) -> None:
+                 jaccard_threshold: float = 0.5,
+                 containment_threshold: float = 0.8,
+                 phrase_overlap_threshold: int = 10,
+                 phrase_len: int = 8) -> None:
     """处理文件，进行多层去重。
     
-    去重策略（四层）：
+    去重策略（五层）：
     1. 精确哈希去重：基于正文前500字符的 MD5
     2. 精确文本去重：完全相同的标准化文本
     3. SimHash 近似去重：汉明距离 ≤ simhash_threshold 视为重复
     4. N-gram Jaccard/包含度去重：在同一 bucket 内精细比较
+    5. 关键短语重叠去重：检测模板化内容（年报、政府文件等）
     
     Args:
         input_path: 输入 JSONL 文件路径
         output_path: 输出 JSONL 文件路径
         simhash_threshold: SimHash 汉明距离阈值，越小越严格（默认 8）
-        jaccard_threshold: Jaccard 相似度阈值（默认 0.6）
-        containment_threshold: 包含度相似度阈值（默认 0.85）
+        jaccard_threshold: Jaccard 相似度阈值（默认 0.5）
+        containment_threshold: 包含度相似度阈值（默认 0.8）
+        phrase_overlap_threshold: 关键短语重叠数量阈值（默认 10）
+        phrase_len: 关键短语长度（默认 8）
     """
     cleaned: List[Dict] = []
     seen_texts: Set[str] = set()
     seen_hashes: Set[str] = set()  # 基于正文哈希的快速去重
     simhash_index: Dict[int, List[Tuple[int, str]]] = {}  # SimHash 索引：bucket -> [(simhash, text)]
-    buckets: Dict[str, List[str]] = {}  # N-gram bucket 索引
+    buckets: Dict[str, List[Tuple[str, Set[str]]]] = {}  # N-gram bucket 索引：bucket -> [(text, phrases)]
     
-    dup_stats = {"hash": 0, "exact": 0, "simhash": 0, "ngram": 0}
+    dup_stats = {"hash": 0, "exact": 0, "simhash": 0, "ngram": 0, "phrase": 0}
 
     for rec in tqdm(load_jsonl(input_path), desc="清洗与去重", unit="doc"):
         docs = clean_record(rec)
@@ -456,20 +494,46 @@ def process_file(input_path: str, output_path: str,
                     dup_stats["simhash"] += 1
                     continue
                 
+                # 预计算关键短语（用于第四、五层）
+                phrases = get_key_phrases(text_for_dedup, phrase_len)
+                
                 # 第四层：N-gram Jaccard/包含度去重（精细比较）
                 bucket_key = make_bucket_key(text_for_dedup)
+                is_dup = False
+                dup_type = None
+                
                 if bucket_key:
                     bucket_list = buckets.setdefault(bucket_key, [])
-                    is_dup = False
-                    for kept in bucket_list:
-                        if is_too_similar_text(text_for_dedup, kept, 
-                                               jaccard_threshold, containment_threshold):
+                    for kept_text, kept_phrases in bucket_list:
+                        # 检查 Jaccard/包含度相似度
+                        ngrams_a = get_char_ngrams(text_for_dedup)
+                        ngrams_b = get_char_ngrams(kept_text)
+                        
+                        jacc = jaccard_similarity(ngrams_a, ngrams_b)
+                        if jacc >= jaccard_threshold:
                             is_dup = True
+                            dup_type = "ngram"
                             break
-                    if is_dup:
-                        dup_stats["ngram"] += 1
-                        continue
-                    bucket_list.append(text_for_dedup)
+                        
+                        cont = containment_similarity(ngrams_a, ngrams_b)
+                        if cont >= containment_threshold:
+                            is_dup = True
+                            dup_type = "ngram"
+                            break
+                        
+                        # 第五层：关键短语重叠去重（检测模板化内容）
+                        if key_phrase_overlap(phrases, kept_phrases, phrase_overlap_threshold):
+                            is_dup = True
+                            dup_type = "phrase"
+                            break
+                
+                if is_dup:
+                    dup_stats[dup_type] += 1
+                    continue
+                
+                # 添加到 bucket
+                if bucket_key:
+                    buckets[bucket_key].append((text_for_dedup, phrases))
 
                 # 通过所有去重检查，保留该文档
                 seen_hashes.add(content_hash)
@@ -484,7 +548,8 @@ def process_file(input_path: str, output_path: str,
     print(f"  - 哈希去重: {dup_stats['hash']}")
     print(f"  - 精确去重: {dup_stats['exact']}")
     print(f"  - SimHash 去重: {dup_stats['simhash']}")
-    print(f"  - N-gram 去重: {dup_stats['ngram']}")
+    print(f"  - N-gram Jaccard/包含度去重: {dup_stats['ngram']}")
+    print(f"  - 关键短语重叠去重: {dup_stats['phrase']}")
     print(f"  - 总去重数: {total_dup}")
     print(f"  - 保留文档数: {len(cleaned)}")
     
@@ -492,7 +557,7 @@ def process_file(input_path: str, output_path: str,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="清洗与拆分 OmniEval-Corpus 文本数据")
+    parser = argparse.ArgumentParser(description="清洗与去重文本数据（支持五层去重策略）")
     parser.add_argument(
         "--input",
         type=str,
@@ -505,9 +570,47 @@ def main():
         default="datasets/OmniEval-Corpus/all_data_clean.jsonl",
         help="清洗后的 JSONL 输出路径",
     )
+    parser.add_argument(
+        "--simhash_threshold",
+        type=int,
+        default=8,
+        help="SimHash 汉明距离阈值，越小越严格（默认 8）",
+    )
+    parser.add_argument(
+        "--jaccard_threshold",
+        type=float,
+        default=0.5,
+        help="Jaccard 相似度阈值（默认 0.5）",
+    )
+    parser.add_argument(
+        "--containment_threshold",
+        type=float,
+        default=0.8,
+        help="包含度相似度阈值（默认 0.8）",
+    )
+    parser.add_argument(
+        "--phrase_overlap",
+        type=int,
+        default=10,
+        help="关键短语重叠数量阈值，用于检测模板化内容（默认 10）",
+    )
+    parser.add_argument(
+        "--phrase_len",
+        type=int,
+        default=8,
+        help="关键短语长度（默认 8）",
+    )
     args = parser.parse_args()
 
-    process_file(args.input, args.output)
+    process_file(
+        args.input, 
+        args.output,
+        simhash_threshold=args.simhash_threshold,
+        jaccard_threshold=args.jaccard_threshold,
+        containment_threshold=args.containment_threshold,
+        phrase_overlap_threshold=args.phrase_overlap,
+        phrase_len=args.phrase_len
+    )
 
 def read_jsonl(file_path: str, line_min: int = 10, line_max: int = 100) -> List[Dict]:
     with open(file_path, "r", encoding="utf-8") as f:
