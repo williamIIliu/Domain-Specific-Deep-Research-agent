@@ -811,7 +811,7 @@ f"""请作为金融领域的专家，评估以下推理过程的质量，给出 
 
 
 
-### 2.3 RL训练
+### 2.3 源代码
 
 参数可以参考[配置说明 — verl documentation](https://woniu9524.github.io/verl-doc/examples/config.html)
 
@@ -929,7 +929,33 @@ f"""请作为金融领域的专家，评估以下推理过程的质量，给出 
 
 
 
-#### 2.3.3 训练
+### 2.4 训练
+
+想要在VeRL使用LoRA做RL训练的同学，需要用vllm（sglang会出问题）。
+
+这里要安装vllm0.11.0，不能安装默认的0.8.4否则会用带`cannot import name 'process_weights_after_loading' from 'vllm.model_executor.model_loader.utils`报错。
+
+同样的，版本会锁在torch2.8，所以环境同上。
+
+```
+uv venv .venv --python 3.12
+source activate .venv/bin/activate
+uv pip install -e .
+uv pip install -r ./requirements.txt
+uv pip install vllm==0.11.0
+export PYTHONPATH="$PWD:$PYTHONPATH"
+
+cd pkgs
+uv pip install 
+```
+
+而且可能还会遇到ray的问题（如果遇到）：
+```
+bug: Have you run ray on this node?
+pip install --upgrade opentelemetry-api opentelemetry-sdk
+```
+
+
 
 训练脚本
 
