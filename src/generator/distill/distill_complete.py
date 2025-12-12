@@ -3,7 +3,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from prompt_matrix import *
-from topic_tree import topic_tree, topic_tree_hash
+from topic_tree import topic_tree, topic_tree_hash, translate_topic_path
 from task_tree import task_tree
 import json_repair
 from tqdm import tqdm
@@ -169,137 +169,349 @@ def pipeline_demo(text_sample):
     # ------------------ 3. 数据生成 ------------------
     res_generations = []
     for candidate in res:
-        # print(candidate)
-        main_doc = doc_str_format.format(title=candidate["metadata"].get("Title", ""), content=candidate["contents"])
-
+        task_name = candidate["task"]
+        
+        # 构建文档字符串
+        main_doc = doc_str_format.format(
+            title=candidate["metadata"].get("Title", ""), 
+            content=candidate["contents"]
+        )
         parts = [f"### 文档\n{main_doc}\n"]
-        # print(main_doc)
-
+        
+        # 获取相关文档的节点ID列表
+        relevant_node_ids = [candidate["id"]]
+        
         # 循环添加相关文档（根据列表长度动态生成）
         for i, relevant_doc_idx in enumerate(candidate["relevant_contents_idxs"]):
-            doc = doc_str_format.format(title=text_sample["relevant_contents"][relevant_doc_idx]["metadata"].get("Title", ""),
-                                        content=text_sample["relevant_contents"][relevant_doc_idx]["contents"])
+            relevant_doc = text_sample["relevant_contents"][relevant_doc_idx]
+            doc = doc_str_format.format(
+                title=relevant_doc["metadata"].get("Title", ""),
+                content=relevant_doc["contents"]
+            )
             parts.append(f"### 相关文档 {i}\n{doc}\n")
+            relevant_node_ids.append(relevant_doc["id"])
 
-        # 拼接所有部分，并用strip()去除首尾多余空行
-        doc_str =  ''.join(parts).strip()
-        print(doc_str)
+        # 拼接所有部分
+        doc_str = ''.join(parts).strip()
+        print(f"\n{'='*50}\n任务类型: {task_name}\n{'='*50}")
+        print(f"文档数量: 1 + {len(candidate['relevant_contents_idxs'])} 个相关文档")
 
+        # 根据任务类型调整生成提示
+        task_require = task_tree[task_name].replace("### 任务要求", "").strip()
+        
         generation_user_input = data_generation_user.format(
             topic_name=candidate["topic"],
-            task_name=candidate["task"],
-            task_require=task_tree[candidate["task"]].replace("### 任务要求", "").strip(),
+            task_name=task_name,
+            task_require=task_require,
             doc_str=doc_str
         )
-        print("Data generation 环节生成用户prompt", generation_user_input)
 
         generation_messages = [
             {"role": "system", "content": data_generation_system},
             {"role": "user", "content": generation_user_input}
         ]
 
-        completion = client.chat.completions.create(
-            model="qwen-plus",  # "qwen3-next-80b-a3b-thinking", #"qwen3-30b-a3b",
-            messages=generation_messages,
-            extra_body={"enable_thinking": False},
-            temperature=0.2,
-            stream=False
-        )
-
-        final_response=json_repair.loads(completion.choices[0].message.content.strip())
-        print("生成数据回复", final_response)
-
         try:
+            completion = client.chat.completions.create(
+                model="qwen-plus",
+                messages=generation_messages,
+                extra_body={"enable_thinking": False},
+                temperature=0.2,
+                stream=False
+            )
 
-            if len(final_response) != 0:
-                for cur in final_response:
-                    candidate["thought_process"] = cur["thought_process"]
-                    candidate["question"] = cur["question"]
-                    candidate["answer"] = cur["answer"]
-                    candidate["relevant_passage"] = cur["relevant_passage"]
-                    print("一条高质量数据\n", candidate)
-                    res_generations.append(candidate)
+            raw_response = completion.choices[0].message.content.strip()
+            final_response = json_repair.loads(raw_response)
+            
+            # 确保是列表格式
+            if not isinstance(final_response, list):
+                final_response = [final_response]
+            
+            print(f"生成数据数量: {len(final_response)}")
+
+            # 根据任务类型处理输出格式
+            generated_data = process_task_output(
+                task_name=task_name,
+                candidate=candidate,
+                final_response=final_response,
+                relevant_node_ids=relevant_node_ids
+            )
+            
+            if generated_data:
+                res_generations.extend(generated_data)
+                print(f"✅ 成功生成 {len(generated_data)} 条 {task_name} 数据")
+            else:
+                print(f"⚠️ 任务 {task_name} 未生成有效数据")
+                
         except Exception as e:
-            print(f"解析或处理数据时发生错误: {str(e)}，跳过本轮处理")
+            print(f"❌ 解析或处理数据时发生错误: {str(e)}，跳过本轮处理")
+            import traceback
+            traceback.print_exc()
+            continue
 
-    # generation_user_input = data_generation_user.format(
-    #     topic_name=passage["topic"],
-    #     task_name=passage["task_type"],
-    #     task_require=task_tree[passage["task_type"]],
-    #     doc_str=doc_str_format.format(title=passage["metadata"].get("Title", ""), content=passage["contents"])
-    # )
-    # generation_messages = [
-    #     {"role": "system", "content": data_generation_system},
-    #     {"role": "user", "content": generation_user_input}
-    # ]
+    return res_generations
+
+
+def process_task_output(task_name, candidate, final_response, relevant_node_ids):
+    """
+    根据不同任务类型处理输出格式
     
-    # completion = client.chat.completions.create(
-    #     model="qwen3-30b-a3b",
-    #     messages=generation_messages,
-    #     temperature=0.1,
-    #     stream=False
-    # )
-    # final_response = json_repair.loads(completion.choices[0].message.content.strip())
-    # final_response = final_response if isinstance(final_response, list) else [final_response]
+    任务类型与输出格式对应关系：
+    - 抽取类问答: 单条问答，answer为列表
+    - 多跳推理类问答: 单条问答，需要多步推理
+    - 对比类问答: 单条问答，涉及对比
+    - 长答案形式问答: 单条问答，答案较长
+    - 多轮对话能力: 多轮对话列表格式
+    """
+    results = []
     
-    # print("【测试】生成结果数量：", len(final_response))
+    if not final_response or len(final_response) == 0:
+        return results
+    
+    topic_name = candidate["topic"]
+    
+    if task_name == "多轮对话能力":
+        # 多轮对话：整个response作为一个对话序列
+        # 输出格式: [{"question": ..., "answer": ..., "relevant_passage": ...}, ...]
+        conversation_turns = []
+        for turn in final_response:
+            if not validate_qa_item(turn):
+                continue
+            turn_data = {
+                "question": turn["question"],
+                "answer": ensure_list(turn["answer"]),
+                "relevant_passage": ensure_list(turn.get("relevant_passage", [])),
+                "topic_name": topic_name,
+                "task_name": task_name,
+                "relevant_node": relevant_node_ids
+            }
+            conversation_turns.append(turn_data)
+        
+        if len(conversation_turns) >= 2:  # 至少2轮才算多轮对话
+            results.append(conversation_turns)
+    else:
+        # 其他任务类型：每条response独立处理
+        for item in final_response:
+            if not validate_qa_item(item):
+                continue
+            
+            data_item = {
+                "question": item["question"],
+                "answer": ensure_list(item["answer"]),
+                "relevant_passage": ensure_list(item.get("relevant_passage", [])),
+                "topic_name": topic_name,
+                "task_name": task_name,
+                "relevant_node": relevant_node_ids if len(relevant_node_ids) > 1 else relevant_node_ids[0]
+            }
+            results.append(data_item)
+    
+    return results
 
-    # # ------------------ 4. 数据规范化输出 ------------------
-    # res["question"] = final_response[0]["question"]
-    # res["answer"] = final_response[0]["answer"]
-    # res["relevant_passage"] = final_response[0].get("relevant_passage", "")
-    # res["relevant_contents_ID"] = [passage, relevant_content]
-    # res["relevant_contents"] = [passage, relevant_content]
-    # res["topic_name"] = passage["topic"]
-    # res["task_name"] = passage["task_type"]
-    #
-    # print("【最终结果】", json.dumps(res, ensure_ascii=False, indent=2))
-    # return res_generations
+
+def validate_qa_item(item):
+    """验证问答项是否有效"""
+    if not isinstance(item, dict):
+        return False
+    if "question" not in item or "answer" not in item:
+        return False
+    if not item["question"] or not item["answer"]:
+        return False
+    # 排除无效答案
+    invalid_answers = ["无", "空", "无法回答", "无法根据检索文档回答问题"]
+    answer = item["answer"]
+    if isinstance(answer, str) and answer in invalid_answers:
+        return False
+    if isinstance(answer, list) and len(answer) == 1 and answer[0] in invalid_answers:
+        return False
+    return True
 
 
-# ------------------ 测试 ------------------
-if __name__ == "__main__":
-    # 示例文档
-    text_sample = {
-        "id": "b3ee734d-2417-42d1-b0b8-45ae35e92a28",
-        "contents": " 国家外汇管理局副局长、新闻发言人王春英就2022年上半年国际收支状况答记者问_管理资讯_青岛市分局 日前，国家外汇管理局公布了2022年二季度及上半年国际收支平衡表初步数据。国家外汇管理局副局长、新闻发言人王春英就相关问题回答了记者提问。 问：2022年上半年我国国际收支状况有何特点？ 答：国际收支平衡表初步数据显示，2022年上半年我国国际收支保持基本平衡。其中，经常账户顺差1691亿美元，与同期国内生产总值（gdp）之比为1.9%，继续处于合理均衡区间；直接投资净流入749亿美元，保持在较高水平。 一是货物贸易顺差同比增长。2022年上半年，我国货物贸易进出口呈现较强的韧性。我国国际收支口径的货物贸易顺差3207亿美元，增长36%，为历年同期最高值。其中，货物贸易出口16437亿美元，同比增长13%；进口13230亿美元，同比增长8%。 二是服务贸易逆差同比收窄。2022年上半年，服务贸易逆差378亿美元，同比下降30%。其中，旅行逆差519亿美元，同比增长31%，主要是海外留学等支出有所回升；智慧财产权使用费逆差159亿美元，与2021年同期基本持平，收入和支出均有所增长，反映我国在智慧财产权领域国际合作不断扩大；运输逆差22亿美元，同比下降89%，主要是运输收入增速快于支出；电信、计算机和资讯服务顺差91亿美元，同比增长1.2倍，体现服务业数字化转型为我国服务贸易发展注入新动能。 三是直接投资保持较高水平净流入。2022年上半年，直接投资净流入749亿美元。其中，来华直接投资净流入1496亿美元，显示我国市场对外资保持吸引力；对外直接投资净流出747亿美元，总体平稳有序。 总的来看，我国高效统筹疫情防控和经济社会发展，经济韧性强、潜力大、活力足，长期向好的基本面没有改变，有利于我国国际收支继续保持基本平衡。",
-        "metadata":{"source_file": "190879.pkl"},
-        "relevant_contents": [
-            {"id": "c538bfb2", "contents": "国家外汇管理局副局长、新闻发言人王春英就2022年上半年国际收支状况答记者问_管理资讯_广西壮族自治区分局\n日前，国家外汇管理局公布了2022年二季度及上半年国际收支平衡表初步数据。国家外汇管理局副局长、新闻发言人王春英就相关问题回答了记者提问。\n问：2022年上半年我国国际收支状况有何特点？\n答：国际收支平衡表初步数据显示，2022年上半年我国国际收支保持基本平衡。其中，经常账户顺差1691亿美元，与同期国内生产总值（GDP）之比为1.9%，继续处于合理均衡区间；直接投资净流入749亿美元，保持在较高水平。\n一是货物贸易顺差同比增长。2022年上半年，我国货物贸易进出口呈现较强的韧性。我国国际收支口径的货物贸易顺差3207亿美元，增长36%，为历年同期最高值。其中，货物贸易出口16437亿美元，同比增长13%；进口13230亿美元，同比增长8%。\n二是服务贸易逆差同比收窄。2022年上半年，服务贸易逆差378亿美元，同比下降30%。其中，旅行逆差519亿美元，同比增长31%，主要是海外留学等支出有所回升；智慧财产权使用费逆差159亿美元，与2021年同期基本持平，收入和支出均有所增长，反映我国在智慧财产权领",
-             "metadata": {"source_file": "363002.pkl"}
-             }
-        ]
+def ensure_list(value):
+    """确保值为列表格式"""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def get_task_filename(task_name):
+    """根据任务名称获取对应的文件名"""
+    task_file_mapping = {
+        "多跳推理类问答": "multi-hop-reasoning.jsonl",
+        "对比类问答": "contrastive.jsonl",
+        "长答案形式问答": "long-form.jsonl",
+        "多轮对话能力": "conversational.jsonl"
     }
-    result = pipeline_demo(text_sample)
+    return task_file_mapping.get(task_name, "other.jsonl")
 
-    # INPUTPUT_JSONL_PATH = "./datasets/OmniEval-Corpus/RAG_test/RAG_base_data.jsonl"
-    # OUTPUT_JSONL_PATH = "./datasets/OmniEval-Corpus/RAG_test/RAG_generation_data.jsonl"
 
-    # files = load_jsonl(INPUTPUT_JSONL_PATH)
-    # # 【修改：添加try-except捕获单个文档的所有错误】
-    # for file in tqdm(files, desc="蒸馏处理进度", unit="doc"):
-    #     doc_id = file.get("id", "未知ID")
-    #     try:
-    #         # 处理文档（若内部出错，直接进入except）
-    #         result = pipeline_demo(file)
+def save_generation_results(results, output_dir, topic_name=None):
+    """
+    保存生成结果到对应的文件
+    
+    Args:
+        results: 生成的数据列表
+        output_dir: 输出目录
+        topic_name: 可选的主题名称，用于创建子目录
+    """
+    if not results:
+        print("没有数据需要保存")
+        return
+    
+    # 创建输出目录
+    if topic_name:
+        # 将中文主题名称转换为英文目录路径
+        english_topic_path = translate_topic_path(topic_name)
+        output_path = os.path.join(output_dir, english_topic_path)
+    else:
+        output_path = output_dir
+    
+    os.makedirs(output_path, exist_ok=True)
+    
+    # 按任务类型分组保存
+    task_groups = {}
+    for item in results:
+        if isinstance(item, list):  # 多轮对话
+            task_name = item[0]["task_name"] if item else "unknown"
+        else:
+            task_name = item.get("task_name", "unknown")
+        
+        if task_name not in task_groups:
+            task_groups[task_name] = []
+        task_groups[task_name].append(item)
+    
+    # 保存到对应文件
+    for task_name, items in task_groups.items():
+        filename = get_task_filename(task_name)
+        filepath = os.path.join(output_path, filename)
+        
+        with open(filepath, "a", encoding="utf-8") as f:
+            for item in items:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        
+        print(f"📁 已保存 {len(items)} 条 {task_name} 数据到 {filepath}")
 
-    #         # 原有逻辑：判断result是否合法并写入
-    #         if isinstance(result, list) and len(result) > 0:
-    #             with open(OUTPUT_JSONL_PATH, "a", encoding="utf-8") as f:
-    #                 json.dump(result, f, ensure_ascii=False)
-    #                 f.write("\n")
-    #             print(f"✅ 文档ID {doc_id}: 写入 {len(result)} 条数据")
-    #         else:
-    #             print(f"📄 文档ID {doc_id}: 无有效生成数据，跳过写入")
 
-    #     # 【新增：捕获该文档处理过程中的所有错误，跳过并继续】
-    #     except Exception as e:
-    #         # 打印详细错误信息（便于调试），但不中断程序
-    #         print(f"\n❌ 文档ID {doc_id}: 处理失败，跳过该文档。错误：{str(e)[:100]}")
-    #         # 可选：打印错误堆栈（需要导入traceback）
-    #         # import traceback
-    #         # traceback.print_exc()
-    #         continue  # 跳过当前文档，处理下一个
+def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None):
+    """
+    批量处理JSONL文件中的文档
+    
+    Args:
+        input_jsonl_path: 输入JSONL文件路径
+        output_dir: 输出目录
+        max_docs: 最大处理文档数（可选）
+    """
+    files = load_jsonl(input_jsonl_path)
+    
+    if max_docs:
+        files = files[:max_docs]
+    
+    total_generated = 0
+    
+    for i, file in enumerate(tqdm(files, desc="蒸馏处理进度", unit="doc")):
+        doc_id = file.get("id", f"doc_{i}")
+        try:
+            results = pipeline_demo(file)
+            
+            if results and len(results) > 0:
+                # 获取主题名称用于分类保存
+                if isinstance(results[0], list):
+                    topic_name = results[0][0].get("topic_name") if results[0] else None
+                else:
+                    topic_name = results[0].get("topic_name")
+                
+                save_generation_results(results, output_dir, topic_name)
+                total_generated += len(results)
+                print(f"✅ 文档 {doc_id}: 生成 {len(results)} 条数据")
+            else:
+                print(f"📄 文档 {doc_id}: 无有效生成数据")
+                
+        except Exception as e:
+            print(f"❌ 文档 {doc_id}: 处理失败 - {str(e)[:100]}")
+            import traceback
+            traceback.print_exc()
+            continue
+    
+    print(f"\n{'='*50}")
+    print(f"处理完成! 共处理 {len(files)} 个文档，生成 {total_generated} 条数据")
+    print(f"{'='*50}")
+
+
+# ------------------ 主程序入口 ------------------
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="金融领域RAG评测数据蒸馏生成工具")
+    parser.add_argument("--mode", type=str, default="demo", choices=["demo", "batch"],
+                        help="运行模式: demo(单文档测试) 或 batch(批量处理)")
+    parser.add_argument("--input", type=str, default=None,
+                        help="输入JSONL文件路径 (batch模式必需)")
+    parser.add_argument("--output", type=str, default="./output/rag_generation",
+                        help="输出目录路径")
+    parser.add_argument("--max_docs", type=int, default=None,
+                        help="最大处理文档数 (可选)")
+    
+    args = parser.parse_args()
+    
+    if args.mode == "demo":
+        # 单文档测试模式
+        print("=" * 60)
+        print("运行模式: 单文档测试 (demo)")
+        print("=" * 60)
+        
+        text_sample = {
+            "id": "b3ee734d-2417-42d1-b0b8-45ae35e92a28",
+            "contents": "国家外汇管理局副局长、新闻发言人王春英就2022年上半年国际收支状况答记者问_管理资讯_青岛市分局 日前，国家外汇管理局公布了2022年二季度及上半年国际收支平衡表初步数据。国家外汇管理局副局长、新闻发言人王春英就相关问题回答了记者提问。 问：2022年上半年我国国际收支状况有何特点？ 答：国际收支平衡表初步数据显示，2022年上半年我国国际收支保持基本平衡。其中，经常账户顺差1691亿美元，与同期国内生产总值（gdp）之比为1.9%，继续处于合理均衡区间；直接投资净流入749亿美元，保持在较高水平。",
+            "metadata": {"source_file": "190879.pkl", "Title": "2022年上半年国际收支状况"},
+            "relevant_contents": [
+                {
+                    "id": "c538bfb2", 
+                    "contents": "国家外汇管理局副局长、新闻发言人王春英就2022年上半年国际收支状况答记者问_管理资讯_广西壮族自治区分局\n日前，国家外汇管理局公布了2022年二季度及上半年国际收支平衡表初步数据。国家外汇管理局副局长、新闻发言人王春英就相关问题回答了记者提问。\n问：2022年上半年我国国际收支状况有何特点？\n答：国际收支平衡表初步数据显示，2022年上半年我国国际收支保持基本平衡。",
+                    "metadata": {"source_file": "363002.pkl", "Title": "广西分局国际收支问答"}
+                }
+            ]
+        }
+        
+        results = pipeline_demo(text_sample)
+        
+        if results:
+            print(f"\n{'='*60}")
+            print(f"生成结果预览 (共 {len(results)} 条):")
+            print("=" * 60)
+            for i, item in enumerate(results[:3]):  # 只显示前3条
+                print(f"\n--- 第 {i+1} 条 ---")
+                if isinstance(item, list):  # 多轮对话
+                    print(f"类型: 多轮对话 ({len(item)} 轮)")
+                    for j, turn in enumerate(item[:2]):  # 显示前2轮
+                        print(f"  轮次{j+1} Q: {turn['question'][:50]}...")
+                else:
+                    print(f"类型: {item.get('task_name', 'unknown')}")
+                    print(f"问题: {item['question'][:80]}...")
+                    answer = item['answer'][0] if item['answer'] else ""
+                    print(f"答案: {answer[:80]}...")
+            
+            # 保存结果
+            os.makedirs(args.output, exist_ok=True)
+            save_generation_results(results, args.output)
+        else:
+            print("未生成有效数据")
+            
+    elif args.mode == "batch":
+        # 批量处理模式
+        if not args.input:
+            print("错误: batch模式需要指定 --input 参数")
+            exit(1)
+        
+        print("=" * 60)
+        print(f"运行模式: 批量处理 (batch)")
+        print(f"输入文件: {args.input}")
+        print(f"输出目录: {args.output}")
+        if args.max_docs:
+            print(f"最大文档数: {args.max_docs}")
+        print("=" * 60)
+        
+        run_batch_pipeline(args.input, args.output, args.max_docs)
 
 
 
