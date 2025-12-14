@@ -68,49 +68,111 @@ modelscope download --model Qwen/Qwen3-8B  --local_dir ./pretrain_models/generat
 
 ### 1.4 数据集清洗
 
-#### 1.4.1 case:
+#### 1.4.1 清洗策略
 
-**去重**
+项目采用五层去重策略对金融文档进行清洗，针对金融领域的特点进行了专门优化。
+
+**去重示例**
 
 ```json
 {"id": "ec470c99-b26b-4a51-9872-5501b142cecf", "contents": "node id: 5d3bff95-7ca0-40f8-bdb2-321816370f33 text: (二)公司近三年（含报告期）的普通股股利分配方案或预案、资本公积金转增股本方案或预案单位：元币种：人民币 (三)以现金方式回购股份计入现金分红的情况 □适用√不适用 (四)报告期内盈利且母公司可供普通股股东分配利润为正，但未提出普通股现金利润分配 方案预案的，公司应当详细披露原因以及未分配利润的用途和使用计划 □适用√不适用 二、承诺事项履行情况 (一)公司实际控制人、股东、关联方、收购人以及公司等承诺相关方在报告期内或持续到报告期内的承诺事项 (二)公司资产或项目存在盈利预测，且报告期仍处在盈利预测期间，公司就资产或项目 是否达到原盈利预测及其原因作出说明 □已达到□未达到√不适用 (三)业绩承诺的完成情况及其对商誉减值测试的影响 □适用√不适用 三、...", "metadata": {"source_file": "000221.pkl"}, "relevant_contents": [{"id": "dd06d209-e6a8-4f73-bb02-468baf94e794", "contents": "node id: e335dddf-cbc4-4b7f-b20a-da3e9f5c17d5 text: (二)公司近三年（含报告期）的普通股股利分配方案或预案、资本公积金转增股本方案或预案 单位：元币种：人民币 (三)以现金方式回购股份计入现金分红的情况 □适用√不适用 (四)报告期内盈利且母公司可供普通股股东分配利润为正，但未提出普通股现金利润分配 方案预案的，公司应当详细披露原因以及未分配利润的用途和使用计划□适用√不适用 二、承诺事项履行情况 (一)公司实际控制人、股东、关联方、收购人以及公司等承诺相关方在报告期内或持续到报告期内的承诺事项 (二)公司资产或项目存在盈利预测，且报告期仍处在盈利预测期间，公司就资产或项目 是否达到原盈利预测及其原因作出说明 □已达到□未达到√不适用 (三)业绩承诺的完成情况及其对商誉减值测试的影响 □适用√不适用 三、报...", "metadata": {}, "score": 0.9486966133117676, "rank": 4}]}
 ```
 
+**执行命令：**
+
 ```shell
-python src/preprocess/data_clean.py \
-    --input datasets/OmniEval-Corpus/all_data_raw.jsonl \
-    --output datasets/OmniEval-Corpus/all_data_clean.jsonl
-    --jaccard_threshold 0.4 \
-    --phrase_overlap 5
+python src/preprocess/data_clean_new.py \ 
+	   --input datasets/OmniEval-Corpus/all_data_raw.jsonl \ 
+	   --output datasets/OmniEval-Corpus/all_data_clean_new2.jsonl \ 
+	   --jaccard_threshold 0.4 \ 
+	   --phrase_overlap 5 \ 
+	   --simhash_threshold 8 \ 
+	   --containment_threshold 0.8 \ 
+	   --phrase_len 8
 ```
 
 
 
-**噪声**
+#### 1.4.2 五层去重机制
+
+- **哈希去重**：基于文档正文前500字符的MD5哈希快速去重
+- **精确去重**：完全相同的标准化文本去重
+- **SimHash去重**：使用局部敏感哈希检测近似重复（汉明距离≤8）
+- **N-gram去重**：基于字符级3-gram的Jaccard相似度（≥0.4）和包含度相似度（≥0.8）
+- **短语重叠去重**：检测关键短语重叠（≥5个8字符短语），专门处理模板化内容
+
+
+
+#### 1.4.3 噪声过滤
+
+**HTML残留清理：**
 
 ```json
-node id: 51d08c0c-705a-4f5e-bc21-809b183ae1f3 text: border=\"1\" ><tr> <td colspan=\"1\" rowspan=\"1\">项目</td> <td colspan=\"1\" rowspan=\"1\">2015年度</td> <td colspan=\"1\" rowspan=\"1\">2014年度</td> <td colspan=\"1\" rowspan=\"1\">2013年度</td> </tr><tr> <td colspan=\"1\" rowspan=\"1\">净利润</td> <td colspan=\"1\" rowspan=\"1\">20044.10</td> <td colspan=\"1\" rowspan=\"1\">16004.82</td> <td colspan=\"1\" rowspan=\"1\">12,6...
-
-法律声明 | 联系我们 | 设为首页 | 加入收藏 … 京ICP备… 京公网安备…
+{
+  "原始": "border=\"1\" ><tr> <td colspan=\"1\" rowspan=\"1\">项目</td> <td colspan=\"1\" rowspan=\"1\">2015年度</td>...",
+  "清理后": "项目 2015年度 2014年度 2013年度 净利润 20044.10 16004.82..."
+}
 ```
 
-使用正则化去除；文字中文比例 `< 0.1` 丢弃
-
-**不良信息**
+**页脚噪声去除**：
 
 ```
-模拟交易:模拟炒股免费实操交易技能”、“微牛证券”、“举报本回复
+原始: "...法律声明 | 联系我们 | 设为首页 | 加入收藏 京ICP备... 京公网安备..."
+清理后: 完全移除此类内容
 ```
 
-正则化
+**金融垃圾信息过滤**：
 
-**过短文本**
+- 模拟炒股广告："模拟交易:模拟炒股免费实操交易技能"
+- 证券推广："微牛证券"、"开户佣金万X"等
+- 投资群组："股票推荐QQ群"、"微信拉群股票"等
 
-去掉
 
-**过长文本**
 
-切分成400-
+#### 1.4.4 质量控制标准
+
+- **最小长度**：100字符（避免标题碎片）
+- **中文比例**：≥30%（确保中文金融内容）
+- **金融相关性**：包含≥2个金融关键词或长度>500字符
+- **结构化数据保护**：自动识别并保留股票行情、基金数据等结构化信息
+
+
+
+#### 1.4.5 清洗效果
+
+处理统计：
+
+- 总输入文档：364,816条
+- 结构化数据保留：191,018条
+- 清洗过滤：10,015条
+- 最终保留：308,346条
+
+
+
+去重统计：
+
+- 哈希去重：20,449条
+- SimHash去重：9,578条
+- N-gram去重：12,386条
+- 短语重叠去重：4,042条
+- **总去重率：12.73%**
+
+
+
+#### 1.4.6 对比清洗数据
+
+<u>因为清洗数据的方式有多种，所以这里也写了脚本来对比不同的清洗方法与原repo方法之间的数据差异。</u>
+
+运行指令：
+
+```shell
+python src/preprocess/compare_jsonl.py \ 
+       --old_file ./datasets/OmniEval-Corpus/all_data_clean.jsonl \ 
+       --new_file ./datasets/OmniEval-Corpus/all_data_clean_new.jsonl \ 
+       --output_dir ./datasets/OmniEval-Corpus/comparison_results
+```
+
+
 
 
 
