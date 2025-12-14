@@ -172,13 +172,37 @@ python src/preprocess/compare_jsonl.py \
        --output_dir ./datasets/OmniEval-Corpus/comparison_results
 ```
 
-
+------
 
 
 
 ## 2. Q&A双阶段蒸馏
 
-参考Qwen3 Embedding 模型的数据制作思路，加入instruct进行指令微调，对于一个doument（作为正例）构建一个query，然后选择预训练的Embedding模型召回的多个结果作为负样本。
+### 2.1 Q&A 双阶段蒸馏的背景与目的
+
+#### 2.1.1 为什么需要Q&A蒸馏？
+
+其实传统的 `Embedding model` 在训练时通常使用的都是简单的 **正负样本对** ，但是这种方式存在以下几个问题：
+
+- **缺乏真实查询场景**：训练数据与实际使用场景不匹配；
+- **负样本质量低**：随机负样本无法有效提升模型区分能力；
+- **缺乏指令理解**：无法处理复杂的检索意图。
+
+如果使用 Q&A 蒸馏，可以通过构造高质量的 **query-document对** 来解决这些问题。
+
+#### 2.1.2 双阶段设计的原因
+
+- 为什么要分为两个阶段？
+  - **第一阶段**：确定"谁会问什么样的问题" --> 解决Query的合理性。
+  - **第二阶段**：生成具体的Query --> 解决Query的多样性和质量。
+- 通过上面的阶段分离，可以：
+  - 提高Query的真实性（符合特定角色特征）；
+  - 增加Query的多样性（不同角色、问题类型、难度）；
+  - 提升训练效果（更贴近实际使用场景）。
+
+### 2.2、Pipeline Design
+
+参考 **Qwen3 Embedding** 模型的数据制作思路，加入instruct进行指令微调，对于一个document（作为正例）构建一个query，然后选择预训练的Embedding模型召回的多个结果作为负样本。
 
 与BERT这种encoder only模型使用[SOS]token不同，Qwen3 使用每一句话的[EOS]token的最后一层的潜变量作为语句表示，因为是Causal模型,而且加入了instruct。
 
@@ -186,15 +210,15 @@ python src/preprocess/compare_jsonl.py \
 {Instruction} {Query}<|endoftext|>
 ```
 
-### 2.1 context 配置
+### 2.3 一阶段：context 配置
 
 主要是为了配置提问角色，问题类型，问题难度，生成更贴合真实的数据。
 
-#### 2.1.1提问角色库
+#### 2.3.1 提问角色库构建
 
-根据腾讯的personal_hub提供人物画像，检索含有finance关键词的画像人物，然后翻译成中文。
+根据腾讯的 **personal_hub** 提供人物画像，检索含有 **finance** 关键词的画像人物，然后翻译成中文。
 
-- 有不同职业如记者，金融咨询师，数据科学家，也有不同身份：学生，教授，从业者，政客，以及他们及自己的特点
+- 有不同职业如记者，金融咨询师，数据科学家，也有不同身份：学生，教授，从业者，政客，以及他们及自己的特点：
 
   ```json
   {'persona': '一位非金融行业的成功创业者，认可高管对“ impostor syndrome（冒名顶替综合征）”的看法，希望获取克服自我怀疑的指导'}
@@ -213,42 +237,75 @@ python src/preprocess/compare_jsonl.py \
   {'persona': '一位财政保守主义者，对财政部长政策的有效性提出质疑'}
   ```
 
-- 使用Embedding对每个文档content检索topk候选的人物，在配置过程中会选择一个提问。
+- 使用 Embedding 对每个文档 content 检索 topk候选的人物，在配置过程中会选择一个提问。
 
-代码实现：
 
-1. 构建特定人群画像json文件
 
-   如果使用中文语料，还需要将人物画像描述改成中文
+**代码实现：**
 
-   ```shell
-   # 1. 设置参数
-       jsonl_path = "./datasets/persona-hub/persona.jsonl"       # 输入文件路径
-       search_keyword = "sport"            # 搜索关键词
-       output_path = f"./datasets/persona-hub/{search_keyword}_persona.jsonl"  # 输出文件路径
-       
-   python src/embedding/distill/find_certain_person.py
-   ```
+- 构建特定人群画像json文件：
 
-2. 搭建语料数据库
+  如果使用中文语料，还需要将人物画像描述改成中文。
 
-在src/embedding/distill/build_persona_db.py中main()，设置文件路径，这里的finance_persona.jsonl即为原始persona
+  ```shell
+  # 1. 设置参数
+      jsonl_path = "./datasets/persona-hub/persona.jsonl"       # 输入文件路径
+      search_keyword = "finance"            # 搜索关键词
+      output_path = f"./datasets/persona-hub/{search_keyword}_persona.jsonl"  # 输出文件路径
+      
+  python src/embedding/distill/find_certain_person.py
+  ```
 
-```shell
-# 配置文件路径
-    persona_file = "./datasets/persona-hub/finance_persona.jsonl"
-    output_dir = "./datasets/persona-hub/finance_persona_index"
-# 构建索引 - 使用 Qwen3-Embedding
-    builder = PersonaIndexBuilder(
-        model_path="./pretrain_models/embedding/Qwen3-Embedding-0.6B",
-        max_length=256,
-        device="auto"
-    )
+- 搭建语料数据库：
 
-python src/embedding/distill/build_persona_db.py
-```
+  在 `src/embedding/distill/build_persona_db.py` 中 `main()` ，设置文件路径，这里的 `finance_persona.jsonl` 即为原始`persona`。
 
-#### 2.1.2 一阶段任务配置
+  ```shell
+  # 配置文件路径
+      persona_file = "./datasets/persona-hub/finance_persona.jsonl"
+      output_dir = "./datasets/persona-hub/finance_persona_index"
+  # 构建索引 - 使用 Qwen3-Embedding
+      builder = PersonaIndexBuilder(
+          model_path="./pretrain_models/embedding/Qwen3-Embedding-0.6B",
+          max_length=256,
+          device="auto"
+      )
+  
+  python src/embedding/distill/build_persona_db.py
+  ```
+
+
+
+#### 2.3.2 一阶段任务配置
+
+**作用：**
+
+对于每个文档，system 需要决定：
+
+- **角色选择**：谁最可能对这个文档感兴趣？
+
+  ```shell
+  文档：关于量化交易策略的技术报告
+  	 → 选择：Python开发者（而非普通投资者）
+  ```
+
+- **问题类型确定**：这个角色会问什么类型的问题？
+
+  - `keywords`：关键信息查询；
+  - `acquire_knowledge`：知识学习；
+  - `summary`：内容总结；
+  - `yes_or_no`：是非判断；
+  - `background`：背景了解。
+
+- **难度评估**：基于角色背景和文档复杂度。
+
+  - `high_school`：表层理解；
+  - `university`：需要专业基础；
+  - `phd`：需要深度专业知识。
+
+
+
+**整体设计如下：**
 
 ```json
 emd_stage1 = """
@@ -273,9 +330,11 @@ emd_stage1 = """
   - phd（博士水平）：需深度专业知识（如学术理论、行业前沿动态）解读文档深层逻辑。
 ```
 
-对每一个context首先召回top5可能会关于这个文档的**提问人**，同时配置会问的**问题类型**以及**问题难度**
+对每一个context首先召回top5可能会关于这个文档的**提问人**，同时配置会问的**问题类型**以及**问题难度**。
 
-#### 2.1.3 二阶段Question生成
+### 2.4 二阶段：Question生成
+
+基于一阶段确定的配置，生成具体的查询语句：
 
 ```json
 给定一个**角色（Character）**、**文档（Passage）** 和**要求（Requirement）**，请从该角色的视角生成一条查询语句：需满足要求中的所有条件，且该查询能用于检索到指定的文档。最终结果仅以 JSON 格式返回，不包含任何额外文本。
@@ -287,7 +346,23 @@ emd_stage1 = """
 
 ```
 
-然后运行蒸馏代码
+例如：
+
+- 输入：
+
+  - Character：一位Python开发者，专注于AI在金融领域的应用
+  - Passage：某个关于机器学习在风险管理中应用的文档
+  - Requirement：问题类型=acquire_knowledge，难度=university
+
+- 输出：
+
+  ```shell
+  "如何使用机器学习算法来改进传统的信用风险评估模型？"
+  ```
+
+
+
+然后运行蒸馏代码：
 
 ```shell
 # 配置参数
@@ -299,6 +374,8 @@ emd_stage1 = """
         
 python src/embedding/distill/distill_complete.py
 ```
+
+------
 
 
 
