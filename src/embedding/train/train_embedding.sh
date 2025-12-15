@@ -19,9 +19,9 @@ NPROC_PER_NODE=2 swift sft \
     --train_type full \
     --lora_rank 0 \
     --lora_alpha 32 \
-    --lora_dropout 0.05 \
+    --lora_dropout 0.0 \
     --warmup_ratio 0.05 \
-    --dataset ./datasets/embedding/infonce_neg.jsonl \
+    --dataset ./datasets/embedding/infonce_qa_dataset.jsonl \
     --max_length 1310 \
     --split_dataset_ratio 0.05 \
     --eval_strategy steps \
@@ -29,7 +29,7 @@ NPROC_PER_NODE=2 swift sft \
     --eval_steps 100 \
     --num_train_epochs 2 \
     --save_steps 100 \
-     --output_dir  ./output/embedding/Qwen3-0.6B_finetune \
+     --output_dir  ./pretrain_models/embedding/Qwen3-0.6B_finetune \
     --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 4 \
@@ -42,4 +42,4 @@ NPROC_PER_NODE=2 swift sft \
     --report_to swanlab \
     --swanlab_project ${PROJECT_NAME} \
     --swanlab_exp_name ${EXPERIMENT_NAME} \
-    --logging_dir ./logs
+    --logging_dir ./logs/embedding 

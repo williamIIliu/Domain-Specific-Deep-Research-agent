@@ -34,5 +34,59 @@
       "top3_hits": 5937,
       "top5_hits": 6363
     }
+  },
+  {
+    "timestamp": "2025-11-30 23:28:28",
+    "parameters": {
+      "test_file": "datasets/embedding/retrieval_test_QA.jsonl",
+      "retrieval_type": "bm25",
+      "hybrid_alpha": 0.5,
+      "server_url": "http://localhost:8080",
+      "topk": 10
+    },
+    "metrics": {
+      "total_queries": 10056,
+      "Top3@accuracy": 0.0,
+      "Top5@accuracy": 0.0,
+      "MRR": 0.0,
+      "top3_hits": 0,
+      "top5_hits": 0
+    }
+  },
+  {
+    "timestamp": "2025-11-30 23:39:03",
+    "parameters": {
+      "test_file": "datasets/embedding/retrieval_test_QA.jsonl",
+      "retrieval_type": "bm25",
+      "hybrid_alpha": 0.5,
+      "server_url": "http://localhost:8080",
+      "topk": 10
+    },
+    "metrics": {
+      "total_queries": 10056,
+      "Top3@accuracy": 0.2981304693715195,
+      "Top5@accuracy": 0.32507955449482895,
+      "MRR": 0.27670422617469204,
+      "top3_hits": 2998,
+      "top5_hits": 3269
+    }
+  },
+  {
+    "timestamp": "2025-12-01 00:09:32",
+    "parameters": {
+      "test_file": "datasets/embedding/retrieval_test_QA.jsonl",
+      "retrieval_type": "hybrid",
+      "hybrid_alpha": 0.7,
+      "server_url": "http://localhost:8080",
+      "topk": 10
+    },
+    "metrics": {
+      "total_queries": 10056,
+      "Top3@accuracy": 0.5950676213206046,
+      "Top5@accuracy": 0.6362370723945903,
+      "MRR": 0.5419335057014029,
+      "top3_hits": 5984,
+      "top5_hits": 6398
+    }
   }
 ]

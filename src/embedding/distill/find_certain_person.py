@@ -64,7 +64,7 @@ def find_persona_with_keyword(jsonl_file_path, keyword, output_path):
 if __name__ == "__main__":
     # 1. 设置参数
     jsonl_path = "./datasets/persona-hub/persona.jsonl"       # 输入文件路径
-    search_keyword = "sport"            # 搜索关键词
+    search_keyword = "finance"            # 搜索关键词
     output_path = f"./datasets/persona-hub/{search_keyword}_persona.jsonl"  # 输出文件路径
     
     # 2. 执行检索并保存结果

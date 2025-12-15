@@ -265,7 +265,9 @@ import json
 import os
 import time
 import traceback
+import random
 from typing import List, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from openai import OpenAI, OpenAIError
 from dotenv import load_dotenv
@@ -277,7 +279,7 @@ import copy
 from prompt import emd_stage1, emd_stage2
 from build_persona_db import PersonaRetriever
 
-def load_jsonl(file_path: str) -> List[Dict]:
+def load_jsonl(file_path: str, start: int, end: int) -> List[Dict]:
     """读取JSONL文件并返回文档列表"""
     docs = []
     if not os.path.exists(file_path):
@@ -298,7 +300,8 @@ def load_jsonl(file_path: str) -> List[Dict]:
                 print(f"⚠️ 跳过第{line_num}行: JSON解析错误 - {str(e)[:50]}")
 
     print(f"✅ 成功读取 {len(docs)} 个有效文档")
-    return docs
+    return docs[start:end]
+
 
 
 class ThreadSafeWriter:
@@ -340,8 +343,14 @@ def process_single_doc_concurrent(
         # 每个线程创建自己的LLM客户端，避免并发冲突
         llm_client = init_llm_client()
         
-        # 1. 安全获取文档内容
-        doc_contents = str(doc.get("contents", "")).strip()
+        # 1. 先拿到原始 contents，并对结构化数据做抽样过滤
+        raw_contents = doc.get("contents", "")
+        # 如果是字典（结构化数据），以 0.9 概率丢弃，只保留少量样本参与蒸馏
+        if isinstance(raw_contents, dict) and random.random() < 0.9:
+            raise ValueError("结构化文档按抽样策略被跳过，不参与蒸馏")
+
+        # 再安全获取文档内容（防止 contents 为空或非字符串）
+        doc_contents = str(raw_contents).strip()
         if not doc_contents:
             raise ValueError("文档内容为空，无法处理")
 
@@ -494,7 +503,7 @@ def process_batch_concurrent(args):
     return results
 
 
-def main():
+def main(start, end):
     try:
         print("=" * 60)
         print("🚀 开始文档并发处理流程")
@@ -510,7 +519,7 @@ def main():
 
         # 2. 读取输入文档
         print("\n2. 读取输入文档")
-        input_docs = load_jsonl(INPUT_JSONL_PATH)
+        input_docs = load_jsonl(INPUT_JSONL_PATH, start, end)
         if not input_docs:
             print("⚠️ 无有效文档，程序退出")
             return
@@ -563,7 +572,6 @@ def main():
                         failed_count += batch_size_actual
                         pbar.update(batch_size_actual)
 
-        # 5. 输出统计
         print("\n4. 处理统计报告")
         total_count = len(input_docs)
         print(f"📋 统计结果：")
@@ -584,8 +592,8 @@ def main():
 
 if __name__ == "__main__":
     # 配置参数
-    INPUT_JSONL_PATH = "./datasets/OmniEval-Corpus/all_data_clean_new2.jsonl"
-    OUTPUT_JSONL_PATH = "./datasets/OmniEval-Corpus/all_data_clean_query_concurrent.jsonl"
+    INPUT_JSONL_PATH = "./datasets/OmniEval-Corpus/all_data_clean_new.jsonl"
+    OUTPUT_JSONL_PATH = "./datasets/embedding/querys.jsonl"
     PERSONA_INDEX_DIR = "./datasets/persona-hub/finance_persona_index"
     LLM_MODEL = "qwen3-30b-a3b-instruct-2507"
     SYSTEM_PROMPT = "你是金融领域的专业分析助手"
@@ -594,4 +602,15 @@ if __name__ == "__main__":
     MAX_WORKERS = 8      # 并发线程数，建议从4-8开始测试
     BATCH_SIZE = 10      # 每批处理的文档数，建议10-50
 
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Embedding蒸馏生成工具")
+    parser.add_argument("--start", type=int, default=0,
+                        help="蒸馏起始行号(0-based, inclusive)")
+    parser.add_argument("--end", type=int, default=None,
+                        help="蒸馏截止行号(0-based, exclusive)")
+    args = parser.parse_args()
+
+    main(args.start, args.end)
+    # file = load_jsonl("../../datasets/OmniEval-Corpus/all_data_clean.jsonl")
+    # print(file)

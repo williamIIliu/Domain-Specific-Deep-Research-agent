@@ -25,9 +25,9 @@ except ImportError:
 # ============================================================
 # 配置
 # ============================================================
-PRM_API_URL = os.getenv("REWARD_URL", "http://0.0.0.0:8060/v1/chat/completions")
+PRM_API_URL = os.getenv("REWARD_URL")
 PRM_API_KEY = os.getenv("REWARD_API_KEY")
-PRM_MODEL_NAME = "reward_model"
+PRM_MODEL_NAME = os.getenv("REWARD_MODEL_NAME", "reward_model")
 
 # 奖励权重配置
 DEFAULT_WEIGHTS = {
@@ -277,8 +277,9 @@ def compute_process_reward(
     try:
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
         }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         
         # 构造评估 prompt
         eval_prompt = f"""请作为金融领域的专家，评估以下推理过程的质量，给出 0-10 的分数。
@@ -309,24 +310,45 @@ def compute_process_reward(
 请综合以上维度给出一个 0-10 的总评分（0 表示推理过程几乎完全错误或无关，10 表示推理过程非常清晰、严谨且能够正确推导出标准答案）。
 只输出一个数字分数（0-10），不要输出任何其他文字。"""
         
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "user", "content": eval_prompt}
-            ],
-            "max_tokens": 16,
-            "temperature": 0.0,
-        }
+        is_ollama_api_chat = isinstance(api_url, str) and api_url.rstrip("/").endswith("/api/chat")
+
+        if is_ollama_api_chat:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "user", "content": eval_prompt}
+                ],
+                "stream": False,
+                "options": {
+                    "temperature": 0.0,
+                    "num_predict": 16,
+                },
+            }
+        else:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "user", "content": eval_prompt}
+                ],
+                "max_tokens": 16,
+                "temperature": 0.0,
+            }
         
         resp = requests.post(api_url, headers=headers, json=payload, timeout=30)
         
         if resp.status_code == 200:
             result = resp.json()
-            score_text = result["choices"][0]["message"]["content"].strip()
+            if "choices" in result:
+                score_text = result["choices"][0]["message"]["content"].strip()
+            elif "message" in result and isinstance(result.get("message"), dict):
+                score_text = str(result["message"].get("content", "")).strip()
+            else:
+                raise ValueError(f"Unsupported response schema: {list(result.keys())}")
             numbers = re.findall(r"(\d+(?:\.\d+)?)", score_text)
             if numbers:
                 raw_score = float(numbers[0])
                 details["raw_score"] = raw_score
+                print("progress reward is", min(raw_score / 10.0, 1.0))
                 return min(raw_score / 10.0, 1.0), details
         else:
             details["error"] = f"API error: {resp.status_code}"
