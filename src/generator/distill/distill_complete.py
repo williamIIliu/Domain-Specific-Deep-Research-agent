@@ -8,6 +8,7 @@ from task_tree import task_tree
 import json_repair
 from tqdm import tqdm
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 初始化 OpenAI client（需在函数外部）
 load_dotenv()
@@ -39,14 +40,19 @@ def format_multi_docs(sample):
     # 拼接所有部分，并用strip()去除首尾多余空行
     return ''.join(parts).strip()
 
-def load_jsonl(file_path: str) :
+def load_jsonl(file_path: str, start: int = 0, end: int | None = None):
     """读取JSONL文件并返回文档列表"""
     docs = []
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"输入文件不存在: {file_path}")
 
     with open(file_path, "r", encoding="utf-8") as f:
-        for line_num, line in enumerate(tqdm(f, desc="读取输入JSONL"), 1):
+        for line_idx, line in enumerate(tqdm(f, desc="读取输入JSONL"), 0):
+            if line_idx < start:
+                continue
+            if end is not None and line_idx >= end:
+                break
+            line_num = line_idx + 1
             line = line.strip()
             if not line:
                 continue
@@ -62,7 +68,7 @@ def load_jsonl(file_path: str) :
     print(f"✅ 成功读取 {len(docs)} 个有效文档")
     return docs
 
-def pipeline_demo(text_sample):
+def pipeline_demo(text_sample, candidate_workers: int = 1):
     """
     简化版 pipeline 流程
     1. topic 分类
@@ -167,21 +173,17 @@ def pipeline_demo(text_sample):
     # print("Current res after the task:\n", res)
 
     # ------------------ 3. 数据生成 ------------------
-    res_generations = []
-    for candidate in res:
+    def generate_for_candidate(candidate):
         task_name = candidate["task"]
-        
-        # 构建文档字符串
+
         main_doc = doc_str_format.format(
-            title=candidate["metadata"].get("Title", ""), 
+            title=candidate["metadata"].get("Title", ""),
             content=candidate["contents"]
         )
         parts = [f"### 文档\n{main_doc}\n"]
-        
-        # 获取相关文档的节点ID列表
+
         relevant_node_ids = [candidate["id"]]
-        
-        # 循环添加相关文档（根据列表长度动态生成）
+
         for i, relevant_doc_idx in enumerate(candidate["relevant_contents_idxs"]):
             relevant_doc = text_sample["relevant_contents"][relevant_doc_idx]
             doc = doc_str_format.format(
@@ -191,14 +193,12 @@ def pipeline_demo(text_sample):
             parts.append(f"### 相关文档 {i}\n{doc}\n")
             relevant_node_ids.append(relevant_doc["id"])
 
-        # 拼接所有部分
         doc_str = ''.join(parts).strip()
         print(f"\n{'='*50}\n任务类型: {task_name}\n{'='*50}")
         print(f"文档数量: 1 + {len(candidate['relevant_contents_idxs'])} 个相关文档")
 
-        # 根据任务类型调整生成提示
         task_require = task_tree[task_name].replace("### 任务要求", "").strip()
-        
+
         generation_user_input = data_generation_user.format(
             topic_name=candidate["topic"],
             task_name=task_name,
@@ -222,35 +222,46 @@ def pipeline_demo(text_sample):
 
             raw_response = completion.choices[0].message.content.strip()
             final_response = json_repair.loads(raw_response)
-            
-            # 确保是列表格式
+
             if not isinstance(final_response, list):
                 final_response = [final_response]
-            
+
             print(f"生成数据数量: {len(final_response)}")
 
-            # 根据任务类型处理输出格式
             generated_data = process_task_output(
                 task_name=task_name,
                 candidate=candidate,
                 final_response=final_response,
                 relevant_node_ids=relevant_node_ids
             )
-            
+
             if generated_data:
-                res_generations.extend(generated_data)
                 print(f"✅ 成功生成 {len(generated_data)} 条 {task_name} 数据")
-            else:
-                print(f"⚠️ 任务 {task_name} 未生成有效数据")
-                
+                return generated_data
+            print(f"⚠️ 任务 {task_name} 未生成有效数据")
+            return []
+
         except Exception as e:
             print(f"❌ 解析或处理数据时发生错误: {str(e)}，跳过本轮处理")
             import traceback
             traceback.print_exc()
-            continue
+            return []
+
+    res_generations = []
+    if candidate_workers and candidate_workers > 1 and len(res) > 1:
+        with ThreadPoolExecutor(max_workers=candidate_workers) as executor:
+            future_to_candidate = {executor.submit(generate_for_candidate, c): c for c in res}
+            for future in as_completed(future_to_candidate):
+                generated_data = future.result()
+                if generated_data:
+                    res_generations.extend(generated_data)
+    else:
+        for candidate in res:
+            generated_data = generate_for_candidate(candidate)
+            if generated_data:
+                res_generations.extend(generated_data)
 
     return res_generations
-
 
 def process_task_output(task_name, candidate, final_response, relevant_node_ids):
     """
@@ -307,7 +318,6 @@ def process_task_output(task_name, candidate, final_response, relevant_node_ids)
     
     return results
 
-
 def validate_qa_item(item):
     """验证问答项是否有效"""
     if not isinstance(item, dict):
@@ -325,7 +335,6 @@ def validate_qa_item(item):
         return False
     return True
 
-
 def ensure_list(value):
     """确保值为列表格式"""
     if value is None:
@@ -333,7 +342,6 @@ def ensure_list(value):
     if isinstance(value, list):
         return value
     return [value]
-
 
 def get_task_filename(task_name):
     """根据任务名称获取对应的文件名"""
@@ -344,7 +352,6 @@ def get_task_filename(task_name):
         "多轮对话能力": "conversational.jsonl"
     }
     return task_file_mapping.get(task_name, "other.jsonl")
-
 
 def save_generation_results(results, output_dir, topic_name=None):
     """
@@ -392,8 +399,7 @@ def save_generation_results(results, output_dir, topic_name=None):
         
         print(f"📁 已保存 {len(items)} 条 {task_name} 数据到 {filepath}")
 
-
-def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None):
+def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None, start: int = 0, end: int | None = None, candidate_workers: int = 1):
     """
     批量处理JSONL文件中的文档
     
@@ -402,7 +408,7 @@ def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None):
         output_dir: 输出目录
         max_docs: 最大处理文档数（可选）
     """
-    files = load_jsonl(input_jsonl_path)
+    files = load_jsonl(input_jsonl_path, start=start, end=end)
     
     if max_docs:
         files = files[:max_docs]
@@ -412,7 +418,7 @@ def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None):
     for i, file in enumerate(tqdm(files, desc="蒸馏处理进度", unit="doc")):
         doc_id = file.get("id", f"doc_{i}")
         try:
-            results = pipeline_demo(file)
+            results = pipeline_demo(file, candidate_workers=candidate_workers)
             
             if results and len(results) > 0:
                 # 获取主题名称用于分类保存
@@ -437,7 +443,6 @@ def run_batch_pipeline(input_jsonl_path, output_dir, max_docs=None):
     print(f"处理完成! 共处理 {len(files)} 个文档，生成 {total_generated} 条数据")
     print(f"{'='*50}")
 
-
 # ------------------ 主程序入口 ------------------
 if __name__ == "__main__":
     import argparse
@@ -451,6 +456,12 @@ if __name__ == "__main__":
                         help="输出目录路径")
     parser.add_argument("--max_docs", type=int, default=None,
                         help="最大处理文档数 (可选)")
+    parser.add_argument("--candidate_workers", type=int, default=1,
+                        help="task candidate并发数(>1启用并行)")
+    parser.add_argument("--start", type=int, default=0,
+                        help="蒸馏起始行号(0-based, inclusive)，batch模式有效")
+    parser.add_argument("--end", type=int, default=None,
+                        help="蒸馏截止行号(0-based, exclusive)，batch模式有效")
     
     args = parser.parse_args()
     
@@ -473,7 +484,7 @@ if __name__ == "__main__":
             ]
         }
         
-        results = pipeline_demo(text_sample)
+        results = pipeline_demo(text_sample, candidate_workers=args.candidate_workers)
         
         if results:
             print(f"\n{'='*60}")
@@ -509,10 +520,10 @@ if __name__ == "__main__":
         print(f"输出目录: {args.output}")
         if args.max_docs:
             print(f"最大文档数: {args.max_docs}")
+        if args.candidate_workers and args.candidate_workers > 1:
+            print(f"candidate并发数: {args.candidate_workers}")
+        if args.start or args.end is not None:
+            print(f"处理行范围: [{args.start}, {args.end})")
         print("=" * 60)
         
-        run_batch_pipeline(args.input, args.output, args.max_docs)
-
-
-
-
+        run_batch_pipeline(args.input, args.output, args.max_docs, start=args.start, end=args.end, candidate_workers=args.candidate_workers)
