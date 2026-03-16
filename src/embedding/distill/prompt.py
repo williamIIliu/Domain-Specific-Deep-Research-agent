@@ -45,19 +45,26 @@ emd_stage1 = """
 请基于用户提供的文档（Passage）和候选角色（Characters）生成输出结果。其中：
 - 文档（Passage）的语言为中文， 为json格式为{{"id":" ","contents":" "}}，使用"contents"对应value进行判断；
 - 候选角色（Characters）的描述语言为中文；
-- 输出要求：仅返回 JSON 格式，且 JSON 中仅含"Characters","Question_Type"和"Difficulty"三个key及相应value，无需额外文本。
+- 输出要求：**必须使用中文回答**。仅返回 JSON 格式，且 JSON 中仅含"Characters","Question_Type"和"Difficulty"三个key及相应value，无需额外文本。不要包含 <think> 标签。
 
 **Passage**: {passage}
 **Characters**: {characters}
 """
 
 emd_stage2 = """
-给定一个**角色（Character）**、**文档（Passage）** 和**要求（Requirement）**，请从该角色的视角生成一条查询语句：需满足要求中的所有条件，且该查询能用于检索到指定的文档。最终结果仅以 JSON 格式返回，不包含任何额外文本。
+给定一个**角色（Character）**、**文档（Passage）** 和**要求（Requirement）**，请从该角色的视角生成两个查询语句：一个标准的检索查询（Query）和一个模糊查询（Fuzzy_Query）。**必须使用中文生成查询语句**。最终结果仅以 JSON 格式返回，不包含任何额外文本.
+
+## 模糊查询（Fuzzy_Query）生成指南
+模糊查询模拟用户在向 AI 助手（Assistant）提问时，表达不够专业、不够清晰或带有真实口语化需求的情形.
+1. **面向助手（AI Assistant）**：提问应直接面向 Assistant，无需加入“各位同事”、“各位股友”等社交性称呼。
+2. **提问模糊化**：将原本专业的术语转换为口语化描述。例如，不直接问“计价方法”，而是问“怎么算钱的”或“用哪种方式核算”。
+3. **真实需求模拟**：加入一些符合角色身份的语气词或前置短语，如“我想了解下...”、“帮我查一下...”、“我记得之前看到过...”。
+4. **去冗余**：避免无谓的寒暄，聚焦于模糊但真实的查询意图.
 
 ## 格式规则
 - **文档（Passage）** 语言：中文
 - **角色（Character）** 与 **要求（Requirement）** 描述语言：中文
-- **输出限制**：仅输出你认为合适的Generated_Query，而非json文件，无多余文本（如解释、说明、标点外的符号）
+- **输出限制**：输出包含 "Query" 和 "Fuzzy_Query" 的 JSON 对象。不要包含 <think> 标签，无多余文本.
 
 ## 示例
 <example>
@@ -65,9 +72,12 @@ emd_stage2 = """
   "Character": "一位专攻期权交易的股票交易者，在金融论坛分享宝贵策略",
   "Passage": "2020年度63名激励对象可行权股票期权280.08万份，行权价格8.76元/股，应收款项合计2453.50万元",
   "Question_Type": "keywords",
-  "Difficulty": "university",
+  "Difficulty": "university"
 }}
-response："2020年度激励对象的股票期权行权价格是多少？"
+response：{{
+  "Query": "2020年度激励对象的股票期权行权价格是多少？",
+  "Fuzzy_Query": "帮我查一下2020年那个激励计划里的期权行权价，我记得好像有个具体单价，是多少来着？"
+}}
 </example>
 
 ## 输入参数
